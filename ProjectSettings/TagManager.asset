@@ -1,0 +1,76 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!78 &1
+TagManager:
+  serializedVersion: 2
+  tags:
+  - ball
+  - stone
+  - Destructible
+  - Cannonball
+  - BigHoop
+  - Enemy
+  - worldMesh
+  - bullet
+  - Chest
+  - EnemyBullet
+  - wood
+  - Miner
+  - axe
+  - Backboard
+  - Net
+  - Ring
+  - Pole
+  - RingTrigger
+  - NetTrigger
+  - BLOCKER
+  - coin
+  - pickaxe
+  - Coin
+  - GHOST
+  - Ship
+  - Water
+  - ENEMY
+  - Crystal
+  - BLUE ORANGE
+  - CHEST
+  layers:
+  - Default
+  - TransparentFX
+  - Ignore Raycast
+  - 
+  - Water
+  - UI
+  - PLAYER
+  - ENEMY
+  - FOOD
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - 
+  - PitSky
+  - PitSun
+  - PitMountains
+  - PitFarPalms
+  - PitNearPalms
+  - PitRoad
+  - PitActors
+  - PitHUD
+  - 
+  - 
+  - XR Simulation
+  - 
+  m_SortingLayers:
+  - name: TopLayer
+    uniqueID: 1835956915
+    locked: 0
+  - name: Default
+    uniqueID: 0
+    locked: 0

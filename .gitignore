@@ -1,0 +1,54 @@
+# Unity-generated caches and per-machine state - all rebuilt by the Editor.
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+/[Bb]uild/
+/[Bb]uilds/
+
+# IDE project files Unity regenerates on demand.
+.vs/
+.vscode/
+.idea/
+*.csproj
+*.sln
+*.slnx
+*.suo
+*.user
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+*.pidb.meta
+*.pdb.meta
+*.mdb.meta
+
+# Build output and crash/diagnostic files.
+*.apk
+*.aab
+*.ipa
+*.app
+*.unitypackage
+crashlytics-build.properties
+sysinfo.txt
+
+# Written into Assets/Resources by the performance test package during builds.
+/Assets/Resources/PerformanceTestRun*.json
+/Assets/Resources/PerformanceTestRun*.json.meta
+
+# Never commit game ROMs (users supply their own).
+*.zip
+
+.DS_Store
+
+# Unity's crash-recovery scene backups (Assets/_Recovery) and the empty
+# Resources folder the performance test package leaves behind after builds.
+/Assets/_Recovery/
+/Assets/_Recovery.meta
+/Assets/Resources.meta
