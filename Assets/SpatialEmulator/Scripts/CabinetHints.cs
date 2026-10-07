@@ -20,7 +20,7 @@ namespace SpatialEmulator
     public class CabinetHints : MonoBehaviour
     {
         const string ScanText = "Move your phone slowly to find the floor, walls and ceiling";
-        const string PlaceText = "Tap a floor, wall or ceiling to place the\nSPATIAL EMULATOR cabinet";
+        const string PlaceText = "Tap a floor, wall or ceiling to place\nan ARcade cabinet";
         const string EditText = "Tap the cabinet to move, rotate or resize it";
         const string EditingText = "Drag an arrow to move it\nDrag the ring to rotate • Pinch to resize\nTap LOCK to lock it in place";
 
