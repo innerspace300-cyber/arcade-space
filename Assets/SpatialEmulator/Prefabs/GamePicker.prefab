@@ -7404,7 +7404,7 @@ MonoBehaviour:
   aboutContent: {fileID: 7051428863252944644}
   aboutTextTemplate: {fileID: 8421460910683499464}
   licenseText: {fileID: 4900000, guid: 41beabf1298694eba9492e707345c58b, type: 3}
-  sourceUrl: https://github.com/LAMBO3000/ARcade
+  sourceUrl: https://github.com/innerspace300-cyber/arcade-space
   noControllerText: No controller connected. Pair a PS5, PS4, Xbox or MFi controller in the iOS Settings app under Bluetooth
 --- !u!114 &1126071790848594665
 MonoBehaviour:

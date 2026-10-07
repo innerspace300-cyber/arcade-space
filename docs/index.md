@@ -10,8 +10,9 @@ Arcade cabinets in your room, with every game's graphics layers spread out in re
 
 1. Allow camera access, then move your phone slowly over a table or floor until it's detected.
 2. Tap to place a cabinet. The built-in demo game is ready to play.
-3. To play your own games, import arcade ROM .zip files you own from the Files app
-   (GAMES → import), or drop them into the ARcade folder in Files.
+3. To play your own games, open **GAMES** and tap **ADD ROM** to import arcade ROM .zip
+   files you own from the Files app, or **SCAN FOLDER** to add every game in a folder at once.
+   You can also drop .zip files into the ARcade folder in the Files app.
 
 ARcade Space does not include or sell any games or ROMs.
 

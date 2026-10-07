@@ -52,7 +52,7 @@ namespace SpatialEmulator.UI
         [Tooltip("Cloned once per block of text: one TMP text can't hold the whole licence (65k vertex limit).")]
         public TMP_Text aboutTextTemplate;
         public TextAsset licenseText;
-        public string sourceUrl = "https://github.com/LAMBO3000/ARcade";
+        public string sourceUrl = "https://github.com/innerspace300-cyber/arcade-space";
 
         [TextArea] public string noControllerText =
             "No controller connected. Pair a PS5, PS4, Xbox or MFi controller in the iOS Settings app under Bluetooth";
