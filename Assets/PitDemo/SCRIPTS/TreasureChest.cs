@@ -32,6 +32,8 @@ public class TreasureChest : MonoBehaviour
     // ARcade: every 3rd chest of a run holds the fairy (FairyAlly) in place
     // of loot; the others hold the loot in turn.
     public const int FairyEvery = 3;
+    // (levels 3 and 4's cat demons: every 2nd - those levels drop fewer chests in a run, and the sky chests never hold one)
+    static int HelperEvery => SpatialEmulator.Demo.PitDemoGame.Level >= 3 ? 2 : FairyEvery;
     bool _fairy;
     [Tooltip("Played as a chest with the fairy in it pops open (it starts with a door opening).")]
     public AudioClip fairyKickSound;
@@ -40,6 +42,10 @@ public class TreasureChest : MonoBehaviour
     [Tooltip("Seconds it stays open after the fairy rises out, before it vanishes.")]
     public float fairyLinger = 1.2f;
     public Loot[] loot;
+    // The run's chests in turn (indices into loot): every fruit by the 10th boss (each fruit chest throws all
+    // its looks: SpewGems), gems between - SAPPHIRES + RUBIES (6) and PINK GEMS + AMETHYSTS (8) left out of
+    // the turn (8 still the dragons' crystal chest: RoadBoss).
+    static readonly int[] LootTurns = { 1, 0, 3, 5, 2, 7, 9, 4 };
     GameObject[] _items;
     /// Chests dropped this run (EndlessKnightDirector resets it).
     public static int RunCount;
@@ -70,6 +76,8 @@ public class TreasureChest : MonoBehaviour
     [Tooltip("Gems shot out per second, for as long as the coin sound plays.")]
     public float gemsPerSecond = 8f;
     public AudioClip coinSound;
+    [Tooltip("Played in place of the coin pour (or a fruit chest's sound) as a candy chest opens - past level 1.")]
+    public AudioClip candySound;
     [Tooltip("Seconds it flashes before vanishing, after the last gem.")]
     public float vanishTime = 1f;
 
@@ -152,6 +160,7 @@ public class TreasureChest : MonoBehaviour
             bool clear = true;
             foreach (var trap in traps)
             {
+                if (trap.template) continue;   // (the director's hidden saw)
                 float halfWidth = SpikeTrap.SpikesWidthPixels * 0.5f * trap.transform.lossyScale.x * 0.01f;
                 if (Mathf.Abs(trap.transform.position.x - at) < halfWidth + spikeClearance) { clear = false; break; }
             }
@@ -160,14 +169,34 @@ public class TreasureChest : MonoBehaviour
         return x;
     }
 
+    /// The next chests made are all this look and loot, falling out of the sky (-1: as usual) - the dragons' crystal chests.
+    public static int ForcedLook = -1, ForcedLoot = -1;
+    /// ...and, if set, what the next chest made spills when it opens in place of its loot (the dragons' food chest).
+    public static System.Action<Vector3> ForcedSpill;
+    System.Action<Vector3> _spill;
+
     void PickLook()
     {
+        if (ForcedLook >= 0 && looks != null && ForcedLook < looks.Length && loot != null && ForcedLoot >= 0 && ForcedLoot < loot.Length)
+        {
+            _fairy = false;
+            _allFruit = false;
+            _spill = ForcedSpill;
+            dropHeight = 3.2f; dropTime = 0.85f;   // (out of the sky)
+            _loot = loot[ForcedLoot];
+            _items = _loot.items;
+            _rate = _loot.rate;
+            var forced = looks[ForcedLook].frames;
+            if (forced != null && forced.Length >= 2) { idleFrames = new[] { forced[0] }; openFrames = forced[1..]; }
+            return;
+        }
         int n = RunCount++;
-        _fairy = (n + 1) % FairyEvery == 0;
+        _fairy = (n + 1) % HelperEvery == 0;
         _allFruit = false;
         if (loot != null && loot.Length > 0 && !_fairy)
         {
-            _loot = loot[(n - (n + 1) / FairyEvery) % loot.Length];
+            int turn = n - (n + 1) / HelperEvery;
+            _loot = loot.Length > 9 ? loot[LootTurns[turn % LootTurns.Length]] : loot[turn % loot.Length];
             _items = _loot.items;
             _rate = _loot.rate;
         }
@@ -213,8 +242,16 @@ public class TreasureChest : MonoBehaviour
         // Its lid creaks open (one of the loot chest sounds) - and a gem
         // chest's coins pour; a fruit chest just the lid.
         if (lidSounds != null && lidSounds.Length > 0) PitAudio.PlayClip(lidSounds[Random.Range(0, lidSounds.Length)]);
+        if (_spill != null)
+        {
+            if (burstPrefab) Instantiate(burstPrefab, transform.position + Vector3.up * 0.15f + Vector3.back * 0.05f, Quaternion.identity);
+            _spill(transform.position + new Vector3(0f, 0.15f, -0.01f));
+            StartCoroutine(Vanish());
+            return;
+        }
         bool fruit = _loot != null && _loot.emitSound;
-        if (!fruit) PitAudio.PlayClip(coinSound);
+        if (Candy) PitAudio.PlayClip(candySound);
+        else if (!fruit && coinSound) PitAudio.PlayClip(coinSound, 1f, coinSound.length * ChestShare);   // (half the pour: half the items)
         if (burstPrefab)
             Instantiate(burstPrefab, transform.position + Vector3.up * 0.15f + Vector3.back * 0.05f, Quaternion.identity);
         if (scoreValue > 0) { PitScoreManager.Instance?.AddScore(scoreValue); BonusPoints += scoreValue; }
@@ -254,24 +291,53 @@ public class TreasureChest : MonoBehaviour
         yield return Vanish();
     }
 
-    // A fountain of gems for as long as the coin sound plays.
+    bool Candy => candySound && SpatialEmulator.Demo.PitDemoGame.Level > 1;   // (it throws candy: its own sound)
+    const float ChestShare = 0.5f;   // (half what it used to throw: a playtest's call)
+    // A fountain of gems, all at once (as many as the coin sound's length used to pour out), quick to land
+    // and fly to her - she needn't wait about.
     System.Collections.IEnumerator SpewGems()
     {
         float duration = coinSound ? coinSound.length : 3f;
-        int count = Mathf.Max(1, Mathf.RoundToInt(duration * gemsPerSecond * _rate));
+        int count = Mathf.Max(1, Mathf.RoundToInt(duration * gemsPerSecond * _rate * ChestShare));
+        if (!Candy && _loot != null && _loot.emitSound) PitAudio.PlayClip(_loot.emitSound, 0.6f);
+        // All of one thing, the whole chest: one of its kinds, one sweet - and a fruit every look of it in turn
+        // (all four bananas, both strawberries: the whole row's worth in one chest).
+        var kind = _items[Random.Range(0, _items.Length)];
+        Sprite[] looks = null;
+        Sprite chestCandy = null;   // (past level 1: this chest's one candy, the next in turn - NextFoodCandy/NextMagicCandy)
+        if (kind.TryGetComponent<ChestGem>(out var proto) && proto.frames != null && proto.frames.Length > 0 && proto.fps <= 0f)
+        {
+            looks = proto.frames;
+            count = Mathf.Max(count, looks.Length);
+        }
+        int firstLook = looks != null ? Random.Range(0, looks.Length) : 0;
         for (int i = 0; i < count; i++)
         {
-            var gem = Instantiate(_items[Random.Range(0, _items.Length)],
+            var gem = Instantiate(kind,
                 transform.position + new Vector3(0f, 0.15f, -0.01f - (i % 50) * 0.001f), Quaternion.identity);
             // High into the air, fanning out evenly to both sides of the chest.
             var item = gem.GetComponent<ChestGem>();
+            if (looks != null) item.frames = new[] { looks[(firstLook + i) % looks.Length] };
             item.velocity = new Vector2(Random.Range(-0.9f, 0.9f), Random.Range(3.0f, 4.2f));
+            item.Quick();
+            // No fruit past level 1: a food chest throws candy in its place (one kind a chest, the next in turn).
+            if (item.healAmount > 0 && (chestCandy ? chestCandy : chestCandy = LevelCollection.NextFoodCandy()) is Sprite treat)
+            {
+                item.frames = new[] { treat };
+                item.fps = 0f;
+                item.candy = true;
+                if (gem.TryGetComponent<SpriteRenderer>(out var look)) look.sprite = treat;
+                item.scale = LevelCollection.CandyScale(treat);
+            }
             // Gems (not fruit) restore mana: one chest's worth fills the bar,
-            // with a few to spare.
-            if (item.healAmount <= 0) item.manaShare = 1.25f / count;
-            if (_loot != null && _loot.emitSound) PitAudio.PlayClip(_loot.emitSound, 0.6f);
-            yield return new WaitForSeconds(duration / count);
+            // with a few to spare - sweets in their place past level 1.
+            if (item.healAmount <= 0)
+            {
+                item.manaShare = 1.25f / count;
+                item.Sweeten(1f, chestCandy ? chestCandy : chestCandy = LevelCollection.NextMagicCandy());
+            }
         }
+        yield return new WaitForSeconds(0.6f);
         yield return Vanish();
     }
 

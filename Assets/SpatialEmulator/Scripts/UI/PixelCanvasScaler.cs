@@ -56,7 +56,7 @@ namespace SpatialEmulator.UI
             // say), which shrank the whole pixel HUD - and everything
             // PixelArtSizer matches to it - in the Scene and Game views.
             if (!_canvas) _canvas = GetComponent<Canvas>();
-            Vector2 display = _canvas ? _canvas.renderingDisplaySize : new Vector2(Screen.width, Screen.height);
+            Vector2 display = _canvas ? (TvOutput.OnTv(_canvas) ? TvOutput.Size : _canvas.renderingDisplaySize) : new Vector2(Screen.width, Screen.height);
             if (display.x <= 0 || display.y <= 0) return;
             int scale = ScaleFor(display, minArtWidth, minArtHeight);
             Scale = scale;

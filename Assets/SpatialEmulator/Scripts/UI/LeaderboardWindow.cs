@@ -1,5 +1,6 @@
-// LeaderboardWindow.cs — ENDLESS KNIGHT's global top 50 (Games.GameCenter),
-// opened by the SCORES key on the cabinet's right panel while the demo runs
+// LeaderboardWindow.cs — the running demo's global top 50 (Games.GameCenter:
+// ENDLESS KNIGHT's or THE TIME CRYSTAL's), opened by the SCORES key on the
+// cabinet's right panel while a demo runs
 // (AddKey). On the screen, so it reads the same in AR and in full screen; the
 // game holds while it's open. A scrolling list - rank, name, score - with the
 // player's own row lit, and their place below the 50 if they're further
@@ -20,7 +21,12 @@ namespace SpatialEmulator.UI
 
         GamePicker _picker;
         GameObject _dialog;
-        TMP_Text _status;
+        TMP_Text _status, _title;
+        string _board;
+        GameObject _tabs, _levels;
+        TMP_Text[] _modeLabels, _levelLabels;
+        bool _knight;
+        RectTransform _view;
         RectTransform _list;
         ScrollRect _scroll;
 
@@ -61,7 +67,7 @@ namespace SpatialEmulator.UI
             public GameObject line;
             void LateUpdate()
             {
-                bool demo = Demo.PitDemoGame.IsRunning;
+                bool demo = Demo.PitDemoGame.IsRunning || Demo.TimeCrystalGame.IsRunning;
                 if (line && line.activeSelf != demo) line.SetActive(demo);
             }
         }
@@ -73,17 +79,44 @@ namespace SpatialEmulator.UI
             _dialog.SetActive(true);
             MobileRetroDepthLayerStack.Paused = true;
             // This run counts too.
-            if (Demo.PitDemoGame.IsRunning && PitScoreManager.Instance) GameCenter.Submit(PitScoreManager.Instance.GetScore());
+            string board = GameCenter.CurrentBoard;
+            GameCenter.Submit(GameCenter.CurrentScore, board);
+            // ENDLESS KNIGHT: HI-SCORE / TIMES (its level time boards, LV1-LV4 under TIMES).
+            _knight = board == GameCenter.LeaderboardId;
+            Load(board);
+        }
+
+        void Load(string board)
+        {
+            _board = board;
+            bool time = GameCenter.IsTimeBoard(board);
+            int level = 0;
+            for (int i = 1; i <= GameCenter.KnightLevels; i++) if (board == GameCenter.LevelTimeBoard(i)) level = i;
+            if (_title) _title.text = (board == GameCenter.TimeCrystalLeaderboardId ? "THE TIME CRYSTAL" : "ENDLESS KNIGHT")
+                + (time ? "\nLEVEL " + level + " BEST TIMES" : "\nTOP 50");
+            // The toggle and, under TIMES, the levels - the chosen ones lit.
+            if (_tabs) _tabs.SetActive(_knight);
+            if (_levels) _levels.SetActive(_knight && time);
+            Stretch(_view, 10, 36, 10, !_knight ? 38 : time ? 70 : 54);
+            if (_modeLabels != null)
+            {
+                if (_modeLabels[0]) _modeLabels[0].color = time ? _picker.textColor : _picker.warningColor;
+                if (_modeLabels[1]) _modeLabels[1].color = time ? _picker.warningColor : _picker.textColor;
+            }
+            for (int i = 0; _levelLabels != null && i < _levelLabels.Length; i++)
+                if (_levelLabels[i]) _levelLabels[i].color = i + 1 == level ? _picker.warningColor : _picker.textColor;
             Clear();
             _status.text = "LOADING...";
             _status.gameObject.SetActive(true);
-            GameCenter.LoadTop(gameObject, nameof(OnLoaded));
+            GameCenter.LoadTop(gameObject, nameof(OnLoaded), board);
         }
+
+
 
         void Close()
         {
             _dialog.SetActive(false);
-            MobileRetroDepthLayerStack.Paused = GamePicker.IsOpen || SettingsScreen.IsOpen;
+            MobileRetroDepthLayerStack.Paused = GamePicker.IsOpen || SettingsScreen.IsOpen || MenuPause.Held;   // (opened from a menu that's still open: still held)
         }
 
         // From SEGameCenter.mm (UnitySendMessage).
@@ -102,7 +135,7 @@ namespace SpatialEmulator.UI
             foreach (var entry in entries)
             {
                 if (previous > 0 && entry.rank > previous + 1) Row("...", "", "", false);
-                Row(entry.rank + ".", entry.name, entry.score.ToString("N0"), entry.me);
+                Row(entry.rank + ".", entry.name, GameCenter.IsTimeBoard(_board) ? GameCenter.FormatTime(entry.score) : entry.score.ToString("N0"), entry.me);
                 previous = entry.rank;
             }
             _scroll.verticalNormalizedPosition = 1f;
@@ -177,6 +210,7 @@ namespace SpatialEmulator.UI
             box.rectTransform.sizeDelta = new Vector2(176, 250);
 
             var title = Text(box.transform, "ENDLESS KNIGHT\nTOP 50", 0f, 1f, TextAlignmentOptions.Center, _picker.textColor);
+            _title = title;
             title.textWrappingMode = TextWrappingModes.Normal;
             var titleRect = title.rectTransform;
             titleRect.anchorMin = new Vector2(0f, 1f);
@@ -186,7 +220,15 @@ namespace SpatialEmulator.UI
             titleRect.anchoredPosition = new Vector2(0, -8);
 
             // The list, scrolling between the title and the CLOSE key.
-            var view = new GameObject("View", typeof(RectTransform), typeof(RectMask2D), typeof(Image)).GetComponent<RectTransform>();
+            // ENDLESS KNIGHT's toggle under the title: HI-SCORE (its scores) or TIMES - and under TIMES a row
+            // of its levels, each one's best times (level 1's first).
+            _tabs = Row(box.transform, "Mode", -36f, new[] { "HI-SCORE", "TIMES" }, out _modeLabels,
+                i => Load(i == 0 ? GameCenter.LeaderboardId : GameCenter.LevelTimeBoard(1)));
+            var levelNames = new string[GameCenter.KnightLevels];
+            for (int i = 0; i < levelNames.Length; i++) levelNames[i] = "LV" + (i + 1);
+            _levels = Row(box.transform, "Levels", -52f, levelNames, out _levelLabels, i => Load(GameCenter.LevelTimeBoard(i + 1)));
+
+            var view = _view = new GameObject("View", typeof(RectTransform), typeof(RectMask2D), typeof(Image)).GetComponent<RectTransform>();
             view.SetParent(box.transform, false);
             view.GetComponent<Image>().color = Color.clear;   // (to be dragged)
             Stretch(view, 10, 36, 10, 38);
@@ -223,6 +265,39 @@ namespace SpatialEmulator.UI
             button.onClick = new Button.ButtonClickedEvent();
             button.onClick.AddListener(() => { Haptics.Play(Haptics.Kind.Light); Close(); });
             _dialog.SetActive(false);
+        }
+
+        // A row of keys (the picker's own), `y` under the box's top, each calling `pick` with its index.
+        GameObject Row(Transform parent, string name, float y, string[] labels, out TMP_Text[] texts, System.Action<int> pick)
+        {
+            var row = new GameObject(name, typeof(RectTransform));
+            row.transform.SetParent(parent, false);
+            var rect = (RectTransform)row.transform;
+            rect.anchorMin = new Vector2(0f, 1f);
+            rect.anchorMax = new Vector2(1f, 1f);
+            rect.pivot = new Vector2(0.5f, 1f);
+            rect.sizeDelta = new Vector2(-20f, 14f);
+            rect.anchoredPosition = new Vector2(0f, y);
+            texts = new TMP_Text[labels.Length];
+            for (int i = 0; i < labels.Length; i++)
+            {
+                var key = (RectTransform)Instantiate(_picker.addRomButton.gameObject, row.transform, false).transform;
+                key.name = labels[i];
+                key.gameObject.SetActive(true);
+                key.anchorMin = new Vector2(i / (float)labels.Length, 0f);
+                key.anchorMax = new Vector2((i + 1) / (float)labels.Length, 1f);
+                key.pivot = new Vector2(0.5f, 0.5f);
+                key.offsetMin = new Vector2(1f, 0f);
+                key.offsetMax = new Vector2(-1f, 0f);
+                var label = key.GetComponentInChildren<TMP_Text>(true);
+                if (label) label.text = labels[i];
+                texts[i] = label;
+                int which = i;
+                var button = key.GetComponent<Button>();
+                button.onClick = new Button.ButtonClickedEvent();
+                button.onClick.AddListener(() => { Haptics.Play(Haptics.Kind.Light); pick(which); });
+            }
+            return row;
         }
 
         static void Stretch(RectTransform rect, float left, float bottom, float right, float top)

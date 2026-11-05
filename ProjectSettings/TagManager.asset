@@ -2,7 +2,7 @@
 %TAG !u! tag:unity3d.com,2011:
 --- !u!78 &1
 TagManager:
-  serializedVersion: 2
+  serializedVersion: 3
   tags:
   - ball
   - stone
@@ -34,6 +34,9 @@ TagManager:
   - Crystal
   - BLUE ORANGE
   - CHEST
+  - ENEMY-BULLET
+  - BULLET
+  - PLAYER
   layers:
   - Default
   - TransparentFX
@@ -44,17 +47,17 @@ TagManager:
   - PLAYER
   - ENEMY
   - FOOD
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
-  - 
+  - TcSpace
+  - TcNebula
+  - TcPlanets
+  - TcStars
+  - TcRocks
+  - TcBigRocks
+  - TcActors
+  - TcHUD
+  - TcPlayer
+  - TcEnemy
+  - TcEnemyBullet
   - PitSky
   - PitSun
   - PitMountains
@@ -63,8 +66,8 @@ TagManager:
   - PitRoad
   - PitActors
   - PitHUD
-  - 
-  - 
+  - TcBullet
+  - TcStatus
   - XR Simulation
   - 
   m_SortingLayers:
@@ -74,3 +77,6 @@ TagManager:
   - name: Default
     uniqueID: 0
     locked: 0
+  m_RenderingLayers:
+  - Default
+  m_MigratedRenderPipelines: []

@@ -8729,7 +8729,7 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_text: Show your games in the cabinet's frame
+  m_text: Show your games list in the cab
   m_isRightToLeft: 0
   m_fontAsset: {fileID: 11400000, guid: 55802d1afe01f4327ad7a02730bf946b, type: 2}
   m_sharedMaterial: {fileID: -1185448598002295380, guid: 55802d1afe01f4327ad7a02730bf946b, type: 2}

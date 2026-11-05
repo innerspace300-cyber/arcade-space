@@ -29,7 +29,7 @@ using UnityEngine.Rendering.Universal;
 
 namespace SpatialEmulator.Demo
 {
-    public class PitDemoGame : MonoBehaviour
+    public class PitDemoGame : LayeredDemo
     {
         public const string GameName = "thepit";
 
@@ -45,27 +45,10 @@ namespace SpatialEmulator.Demo
             crcs = new uint[0],
         };
 
-        public struct Layer
-        {
-            public string name;
-            public uint zOrder;
-            /// How deep it sits, in steps of the layer spacing (the emulator's
-            /// layers are their z-order apart, one step each; the demo's, Depths).
-            public float depth;
-            public RenderTexture texture;
-            /// Shown above the cabinet frame (the health bar and score), on the
-            /// frame's own layer, not on the screen.
-            public bool aboveFrame;
-            /// Grown with the cabinet frame as the layers spread apart, so it
-            /// keeps filling the frame's opening (the far background).
-            public bool fillFrame;
-        }
-
         /// Where the demo's world lives: well away from the room and the AR camera.
         static readonly Vector3 Origin = new Vector3(0f, -500f, 0f);
 
         const int TextureHeight = 320;          // 2x the background's 160 px
-        const float Aspect = 4f / 3f;           // an arcade monitor, like the other games
 
         // Back to front. The characters' camera also sees THE PIT's physics
         // layers and Default (spawned enemies, items and effects keep theirs).
@@ -126,10 +109,21 @@ namespace SpatialEmulator.Demo
             ("palms back", "PitFarPalms"), ("palms", "PitNearPalms"), ("road", "PitActors"),
         };
 
-        public static PitDemoGame Running { get; private set; }
+        public static PitDemoGame Running
+        {
+            get => s_running;
+            private set
+            {
+                if (!value && Active == s_running) Active = null;
+                s_running = value;
+                if (value) Active = value;
+            }
+        }
+        static PitDemoGame s_running;
         public static bool IsRunning => Running != null;
 
-        public readonly List<Layer> Layers = new List<Layer>();
+        public override float Aspect => 4f / 3f;   // an arcade monitor, like the other games
+        public override string HudLayerName => HudLayer;
 
         PlayerScriptARIANAClips _player;
         /// The knight.
@@ -171,11 +165,18 @@ namespace SpatialEmulator.Demo
         /// While true nothing reaches the knight (she's stepping into the portal).
         public static bool ControlsLocked;
 
+        /// Level 1's prefab (the demo's own) - the way back to it from level 2 is its way on (LevelPortal).
+        public static GameObject DemoPrefab;
+        /// A new game (not a death or a level change): she comes out of level 1's own torii (LevelPortal), then the witch's welcome.
+        public static bool NewGame;
+
         public static PitDemoGame Launch(GameObject prefab)
         {
+            DemoPrefab = prefab;
             Stop();
             PlayerBuffs.Reset();
             ControlsLocked = false;
+            LevelPortal.LaidOut = false;   // (its picture held dark till it is: MobileRetroDepthLayerStack)
             var root = Instantiate(LevelPrefab ? LevelPrefab : prefab, Origin, Quaternion.identity);
             root.name = "PitDemo (running)";
             Running = root.AddComponent<PitDemoGame>();
@@ -209,6 +210,10 @@ namespace SpatialEmulator.Demo
             // new copy right away, and THE PIT's singletons (PitScoreManager)
             // would otherwise find the old one still there and remove themselves.
             DestroyImmediate(game.gameObject);
+            // Its REST prompt (made at the scene's root, over her head) goes with it.
+            foreach (var prompt in FindObjectsByType<RestPrompt>(FindObjectsInactive.Include, FindObjectsSortMode.None)) DestroyImmediate(prompt.gameObject);
+            // (In the Editor, out of play - a test render - nor its music player.)
+            if (!Application.isPlaying) foreach (var music in FindObjectsByType<DemoMusic>(FindObjectsInactive.Include, FindObjectsSortMode.None)) DestroyImmediate(music.gameObject);
             // Everything else it spawned at the scene's root down in its
             // world (chests, their gems and fruit, effects, strikes): a
             // restart brings back only what the new copy makes.
@@ -236,8 +241,11 @@ namespace SpatialEmulator.Demo
             _enemies = GetComponentInChildren<ParallaxSpawnSystem>(true);
             _collectables = GetComponentInChildren<CollectableSpawnSystem>(true);
 
+            KeepSpritesTransparent();
             AssignGroups();
             BuildCameras();
+            BuildLevelBackground();
+            LockPalmsToRoad();
 
             // The room's AR camera must not see the demo's depth groups.
             int pitMask = 0;
@@ -248,6 +256,7 @@ namespace SpatialEmulator.Demo
             FlattenAudio();
             SpellWheel.Find();   // on the controls' C button
             gameObject.AddComponent<HudStyle>();   // the HUD's line work in the cabinet's style
+            gameObject.AddComponent<LevelTimer>();   // the level's clock under the score, its best and its Game Center board
             // Cast shadows on the road: the knight and the witch (bomb guys
             // and bosses get theirs as they come).
             ScaleUpCharacters();
@@ -266,14 +275,31 @@ namespace SpatialEmulator.Demo
             RestPrompt.Attach(_player, hud && hud.healthText ? hud.healthText.font : null);
             var witch = transform.Find("WITCH");
             if (witch) SpriteShadow.Cast(witch.GetComponentInChildren<SpriteRenderer>());
+            // The campfire and the witch stay put on the road as it scrolls (RoadPin).
+            foreach (string onRoad in new[] { "BONFIRE", "WITCH" })
+                if (transform.Find(onRoad)) transform.Find(onRoad).gameObject.AddComponent<RoadPin>();
+            // The witch's own magic: an orange edge, a purple bloom, sparks, and she levitates.
+            if (witch) witch.gameObject.AddComponent<WitchMagic>();
             // The campfire's too, from the bottom of its flames.
             var fire = transform.Find("BONFIRE");
             var fireShadow = fire ? SpriteShadow.Cast(fire.GetComponent<SpriteRenderer>()) : null;
-            if (fireShadow) fireShadow.measurePixels = true;
+            if (fireShadow) { fireShadow.measurePixels = true; fireShadow.lit = false; }   // (the fire's the light)
             // The HUD's bars take their (fixed) lengths in their first Update;
             // it's shown from the end of that frame (LateUpdate), never short.
             SetHudShown(false);
-            // The witch's welcome and HOW TO PLAY, the first time.
+            // The witch's welcome and HOW TO PLAY, the first time (once she's out of level 1's torii, a new game).
+            if (LevelPortal.IntroArriving) StartCoroutine(IntroOnceOut());
+            else DemoDialogue.ShowIntro();
+            // Each later level's welcome, the first time she gets there.
+            DemoDialogue.ShowLevelIntro(Level);
+        }
+
+        System.Collections.IEnumerator IntroOnceOut()
+        {
+            float since = Time.unscaledTime;
+            while (LevelPortal.IntroArriving && Time.unscaledTime - since < 6f) yield return null;
+            LevelPortal.IntroArriving = false;
+            yield return new WaitForSecondsRealtime(0.4f);
             DemoDialogue.ShowIntro();
         }
 
@@ -427,6 +453,75 @@ namespace SpatialEmulator.Demo
                 Layers.Add(new Layer { name = GroupLayers[i], zOrder = (uint)i, depth = Depths[i], texture = rt, fillFrame = true });
             }
             MoveSpawnPoints(view.center.x, view.extents.y * Aspect);
+            _view = view;
+        }
+
+        Bounds _view;
+
+        // Level 1's moving layers: THE PIT scrubs them as frames of its
+        // background animation, each a few whole pixels on from the last and
+        // several a picture at a sprint, so they juddered (and slid against
+        // everything on the road, moving smoothly). In their place, each as
+        // one seamless strip made from its frames (Resources/Pit*Strip: a
+        // whole background loop), gliding exactly with the road (RoadStrip).
+        void LockPalmsToRoad()
+        {
+            if (GetComponentInChildren<ParallaxLevelBackground>(true)) return;   // (a level with its own background hides them)
+            var bg = _player && _player.backgroundAnimator ? _player.backgroundAnimator.transform : null;
+            if (!bg) return;
+            // Level 1's moving layers as smooth strips (RoadStrip): name, strip, its pixels a loop.
+            Strip(bg, "BG Mountains Copy", "PitMountainsStrip", 240f);
+            Strip(bg, "BG palms back", "PitPalmsBackStrip", 480f);
+            Strip(bg, "BG Palms", "PitPalmsStrip", 720f);
+            // The road: its sidewalk band (the strip, its front face below plain; the HUD
+            // panel's in front of that). Its frames' renderer just made clear: its bounds are still read.
+            Strip(bg, "BG road", "PitRoadBandStrip", 720f, hide: false);
+        }
+
+        static void Strip(Transform bg, string layer, string strip, float loopPixels, bool hide = true)
+        {
+            var t = bg.Find(layer);
+            var art = t ? t.GetComponent<SpriteRenderer>() : null;
+            var sprite = Resources.Load<Sprite>(strip);
+            if (!art || !art.sprite || !sprite) return;
+            var holder = new GameObject(layer + " STRIPS").AddComponent<RoadStrip>();
+            holder.transform.SetParent(bg, false);
+            holder.Build(art, sprite, loopPixels, hide);
+        }
+
+        // A level's own background (ParallaxLevelBackground: level 2's Starry
+        // Night, level 3's Bamboo Forest - on their prefabs) in place of the
+        // synthwave's, down to the road's top edge, with its own path.
+        // The knight's and the enemies' sprite-shadow materials draw in the
+        // transparent queue (3050), after the road. Unity once re-saved them at
+        // 2050 (opaque), drawing the knight and the slime boss BEHIND the ground
+        // - put back here whatever the assets say.
+        static void KeepSpritesTransparent()
+        {
+            foreach (var material in Resources.FindObjectsOfTypeAll<Material>())
+                if (material && material.shader && material.shader.name == "Shader Graphs/Sprite Shadow" && material.renderQueue < 3000)
+                    material.renderQueue = 3050;
+        }
+
+        void BuildLevelBackground()
+        {
+            var starry = GetComponentInChildren<ParallaxLevelBackground>(true);
+            // The shadows in this level's light (level 1: their own sunset pink).
+            SpriteShadow.LevelTint = starry ? starry.shadowTint : Color.clear;
+            SpriteShadow.LevelOpacity = starry ? starry.shadowOpacity : 1f;
+            SpriteShadow.Reflections = starry && starry.reflections;   // (level 4: the characters in its still water)
+            if (starry) SpriteShadow.ReflectionTint = starry.reflectionTint;
+            LevelLit.Light = starry ? starry.characterLight : Color.white;
+            SpriteShadow.CanopyMasks = false;   // (a level with the bamboo's shade turns it on as it builds)
+            if (!starry || !_player || !_player.backgroundAnimator) return;
+            var bg = _player.backgroundAnimator.transform;
+            var road = bg.Find("BG road") ? bg.Find("BG road").GetComponent<SpriteRenderer>() : null;
+            float roadTop = road && road.sprite
+                ? road.bounds.max.y - road.bounds.size.y / road.sprite.rect.height   // (under its clear top row)
+                : _view.center.y;
+            // The cameras' whole view (4:3; _view's own width is the background art's, before it was widened).
+            var picture = new Bounds(_view.center, new Vector3(_view.size.y * Aspect, _view.size.y, _view.size.z));
+            starry.Build(picture, roadTop, bg, _player, road, _hudBandTop);   // (the path down to the HUD band: the sidewalk's depth)
         }
 
         // ARcade: the sidewalk (the road art's 16-row surface, under its clear

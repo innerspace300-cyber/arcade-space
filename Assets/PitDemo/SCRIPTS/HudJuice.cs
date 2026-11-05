@@ -69,7 +69,7 @@ public class HudJuice : MonoBehaviour
     // (Called before the heal lands: a heal onto a full bar doesn't flash it.)
     void OnHealed()
     {
-        if (stats && stats.health < stats.MaxHP) _healAt = Time.time;
+        if (stats && stats.health < stats.MaxHP) { _healAt = Time.time; ChromeBar.Kick(0.7f); }
     }
 
     void OnMana() { }
@@ -87,6 +87,10 @@ public class HudJuice : MonoBehaviour
             {
                 _hitAt = Time.time;
                 if (_health != int.MinValue) SpatialEmulator.Haptics.Play(SpatialEmulator.Haptics.Kind.Heavy);   // hurt
+                // Her blood - rainbow chrome pixels, like her health bar - from any hit (foes, bosses, traps).
+                var her = RoadFoe.PlayerBody();
+                if (her.size != Vector3.zero) FoeFx.Gore(new Vector3(her.center.x, her.center.y, her.center.z - 0.02f), Color.white, 1.2f, 17, chrome: true);   // (30% less than it was)
+                ChromeBar.Kick();   // (the bar's liquid surges)
             }
             if (mana > _mana)
             {

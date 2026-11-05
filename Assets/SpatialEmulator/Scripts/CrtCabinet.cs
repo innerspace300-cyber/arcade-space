@@ -93,7 +93,7 @@ namespace SpatialEmulator
             // neon one: swapped as the game changes.)
             if (_shown && _model && _modelVertical != MobileRetroDepthLayerStack.Vertical) Show(false);
             if (on != _shown) Show(on);
-            PlaysFlat = _shown && !SpatialEmulator.Demo.PitDemoGame.IsRunning;
+            PlaysFlat = _shown;
             if (_shown) Fit();
         }
 
@@ -134,7 +134,7 @@ namespace SpatialEmulator
                 if (_box) { _boxCenter = _box.center; _boxSize = _box.size; }
                 _scale = transform.localScale.x;
                 _model.gameObject.SetActive(true);
-                PlaysFlat = !SpatialEmulator.Demo.PitDemoGame.IsRunning;
+                PlaysFlat = true;
                 if (_frameCanvas) _frameCanvas.enabled = false;
 
                 // The picture moves within the cabinet so the 3D one stands
@@ -183,8 +183,8 @@ namespace SpatialEmulator
             }
         }
 
-        /// A game (not the demo) is in the 3D cabinet: its layers play on one
-        /// plane, on the tube - only the demo's space out in it, for now.
+        /// In the 3D cabinet every game's layers - the demos' too - play on one
+        /// plane, on the tube, in their order (the frame's spacing stays with the frame).
         public static bool PlaysFlat { get; private set; }
 
         /// The 3D cabinet is up round the screen.

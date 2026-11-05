@@ -41,7 +41,11 @@ namespace SpatialEmulator
 
         public static void Fit(AudioSource source)
         {
-            if (!source || source.GetComponent<VolumeFilter>()) return;
+            if (!source) return;
+            // The music never loses its voice to a crowd of sounds (a chest's gems all collected at once):
+            // it's top priority (0), the sounds after it.
+            source.priority = source.GetComponent<MusicTrack>() ? 0 : 160;
+            if (source.GetComponent<VolumeFilter>()) return;
             if (MusicNow < 0f) MusicNow = Music;
             if (SfxNow < 0f) SfxNow = Sfx;
             source.gameObject.AddComponent<VolumeFilter>().music = source.GetComponent<MusicTrack>();

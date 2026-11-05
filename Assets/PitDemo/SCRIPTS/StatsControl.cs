@@ -35,7 +35,7 @@ public class StatsControl : MonoBehaviour
         }
 
         // ARcade: the Shield Buff - nothing hurts (PlayerBuffs).
-        if (value < 0 && PlayerBuffs.Shield) return;
+        if (value < 0 && PlayerBuffs.Shield) { PlayerBuffs.Blocked(); return; }   // (a gold burst and a ricochet off it)
 
         if (value > 0) Healed?.Invoke();
         playerStats.health += value;

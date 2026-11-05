@@ -10,6 +10,8 @@
 // Until the player has used it once, the pad rests visible at restPoint
 // whenever steering is available (router sets available), so it's clear
 // the stick is there; after the first thumb lifts it goes back to floating.
+// On THE TIME CRYSTAL's Choose Your Fighter it always rests there, faint
+// (FaintAlpha), to show the pilots can be picked with it - solid under a thumb.
 
 using UnityEngine;
 using UnityEngine.UI;
@@ -51,6 +53,19 @@ namespace SpatialEmulator.Controls
         public bool available { get; set; }
 
         bool _used;
+        CanvasGroup _fade;
+        const float FaintAlpha = 0.3f;
+
+        // Resting faint, as a hint: on THE TIME CRYSTAL's Choose Your Fighter.
+        static bool Hint => TimeCrystal.TcFighterSelect.Active;
+
+        void Fade(float alpha)
+        {
+            if (!pad) return;
+            if (!_fade && alpha >= 1f) return;
+            if (!_fade) { _fade = pad.GetComponent<CanvasGroup>(); if (!_fade) _fade = pad.gameObject.AddComponent<CanvasGroup>(); }
+            if (_fade.alpha != alpha) _fade.alpha = alpha;
+        }
 
         RectTransform _zone;
         int? _fingerId;
@@ -79,13 +94,16 @@ namespace SpatialEmulator.Controls
                 _fingerId = null;
                 if (pad)
                 {
-                    bool rest = showAtRest && !_used && available && isActiveAndEnabled;
+                    bool hint = Hint && available && isActiveAndEnabled;
+                    bool rest = hint || (showAtRest && !_used && available && isActiveAndEnabled);
                     pad.gameObject.SetActive(rest);
                     if (rest) pad.localPosition = RestPosition();
+                    Fade(hint ? FaintAlpha : 1f);
                 }
                 if (knob) knob.localPosition = Vector3.zero;
                 SetDirections(false, false, false, false);
                 ArcadeInput.SetPush(0f);
+                ArcadeInput.SetStick(Vector2.zero);
                 return;
             }
 
@@ -94,6 +112,7 @@ namespace SpatialEmulator.Controls
                 _fingerId = fingerId;
                 pad.localPosition = local;
                 pad.gameObject.SetActive(true);
+                Fade(1f);
             }
 
             Vector2 center = pad.localPosition;
@@ -114,9 +133,11 @@ namespace SpatialEmulator.Controls
             {
                 SetDirections(false, false, false, false);
                 ArcadeInput.SetPush(0f);
+                ArcadeInput.SetStick(Vector2.zero);
                 return;
             }
             ArcadeInput.SetPush(radius > 0f ? offset.magnitude / radius : 1f);
+            ArcadeInput.SetStick(radius > 0f ? offset / radius : offset.normalized);
 
             // Eight 45-degree sectors centered on the axes and diagonals.
             float angle = Mathf.Atan2(offset.y, offset.x) * Mathf.Rad2Deg;

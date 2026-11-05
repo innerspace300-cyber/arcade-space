@@ -2,7 +2,7 @@
 // facing the viewer), so it only reads correctly from the front.
 //
 // On a floor or table it faces the AR camera once, at the moment it's
-// placed. After that it's turned only through Turn/SetTurn (CabinetManipulator's
+// placed, squared up with the room's grid (PlaneGridFrame). After that it's turned only through Turn/SetTurn (CabinetManipulator's
 // twist gesture and ring), within a small range around that facing - enough
 // to see the layers stand apart, never so far the depth gives itself away -
 // and it eases to each new angle, so a fast drag can't make it jump about.
@@ -22,8 +22,8 @@
 //
 // It's sized to fit the phone's view from where it was placed (FitToView)
 // before it's ever seen: it spawns too small to see, and as soon as its
-// screen frame and side panel have sized themselves (a frame or two) it
-// takes the scale that makes them fitWidth of the picture across, and no
+// screen frame has sized itself (a frame or two) it takes the scale that
+// makes it fitWidth of the picture across, and no
 // more than fitHeight of it top to bottom (the controls cover the bottom of
 // the screen), within CabinetManipulator's scale limits.
 //
@@ -112,6 +112,9 @@ namespace SpatialEmulator
 
         void OnEnable()
         {
+            // Placed: just the game, the side panels folded behind MENU's key.
+            if (UI.SaveStatePanel.SideMenusOpen) UI.MenuPause.Close(UI.MenuPause.Menu.Side);
+            UI.SaveStatePanel.SideMenusOpen = false;
             _settling = true;
             _settleUntil = Time.unscaledTime + settleSeconds;
             _placed = false;
@@ -133,7 +136,8 @@ namespace SpatialEmulator
             // The layer quads' correct (unmirrored) side faces the stack's
             // local -Z, so the cabinet's forward (+Z) must point AWAY from
             // the camera for the viewer to see the front, not the back.
-            transform.rotation = Quaternion.LookRotation(-toCamera.normalized, Vector3.up);
+            // Squared up with the room's neon grid (PlaneGridFrame), whichever of its four ways is nearest to facing her.
+            transform.rotation = Quaternion.LookRotation(PlaneGridFrame.Square(-toCamera.normalized), Vector3.up);
             _baseYaw = transform.eulerAngles.y;
             _turn = _turnTarget = _turnSpeed = 0f;
             _initialized = true;
@@ -203,7 +207,10 @@ namespace SpatialEmulator
             return true;
         }
 
-        // The screen frame's and side panel's corners, in the cabinet's own (unscaled) space.
+        // The screen frame's corners, in the cabinet's own (unscaled) space.
+        // (Not the side panels': they start folded away behind the three
+        // bars, and their size follows MENU's height, which isn't laid out
+        // yet - counted in, they shrank the cabinet to a third.)
         bool LocalExtents(out Vector3 min, out Vector3 max)
         {
             min = Vector3.one * float.MaxValue;
@@ -211,8 +218,7 @@ namespace SpatialEmulator
             bool any = false;
             var corners = new Vector3[4];
             var frame = GetComponentInChildren<UI.ScreenFrame>(true);
-            var panel = GetComponentInChildren<UI.SaveStatePanel>(true);
-            foreach (var rect in new[] { frame ? (RectTransform)frame.transform : null, panel ? (RectTransform)panel.transform : null })
+            foreach (var rect in new[] { frame ? (RectTransform)frame.transform : null })
             {
                 if (!rect || !rect.gameObject.activeInHierarchy) continue;
                 rect.GetWorldCorners(corners);

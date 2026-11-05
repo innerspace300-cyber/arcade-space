@@ -5,7 +5,7 @@ using UnityEngine;
 // (BossBarA: its angled black back, the fill - recoloured to the boss's
 // body's purple, and turned with a recoloured boss's own colours - a white fill that
 // trails it down after each hit, and the grey frame over them; 9-sliced to
-// the same width for every boss, Resources/BossBar) with its name (SLIMER) under its right
+// the same width for every boss, Resources/BossBar) with its name (THE GLUTTON) under its right
 // end, both clear over its head. It holds one height over the boss's feet (not bobbing with its frames). It follows the boss on the road, at the characters' pixel size, in
 // the characters' depth layer; it fades away when the boss dies.
 // Added to each boss by EndlessKnightDirector.
@@ -30,20 +30,23 @@ public class BossHealthBar : MonoBehaviour
 
     static Material s_material;
     static float ArtPixel => SpikeTrap.PixelSize * 2f;
-    EnemyStateMachineSlimeBoss _boss;
+    IRoadBoss _boss;   // (the Slime Boss or a RoadBoss)
     SpriteRenderer _back, _trail, _fill, _frame;
     TextMeshPro _label;
+    string _name;
     const float TorsoOffset = 0.136f;
     bool _headFromIdle;
     float _width, _headOverFeet, _trailFrac = 1f, _hitAt = -10f, _shownFrac = 1f, _deadAt = -1f;
 
-    public static BossHealthBar Attach(EnemyStateMachineSlimeBoss boss, TMP_FontAsset font)
+    /// `name`: on the bar (else its own, RoadBoss.BarName - or THE GLUTTON).
+    public static BossHealthBar Attach(IRoadBoss boss, TMP_FontAsset font, string name = null)
     {
         var go = new GameObject("Boss Health Bar");
         // On the front layer (the HUD's), over everything.
         go.layer = LayerMask.NameToLayer(SpatialEmulator.Demo.PitDemoGame.HudLayer);
         var bar = go.AddComponent<BossHealthBar>();
         bar._boss = boss;
+        bar._name = name;
         bar.Build(font);
         return bar;
     }
@@ -79,7 +82,7 @@ public class BossHealthBar : MonoBehaviour
 
         // As wide as the boss's body (its collider) and a bit, in art pixels;
         // its head's height over its feet, from its sprite as it comes in.
-        var body = _boss.BodyCollider ? _boss.BodyCollider.bounds : _boss.Body.bounds;
+        var body = _boss.BodyBounds;
         _width = barWidth;
         _headOverFeet = DrawnTop(_boss.Body) - body.min.y;
 
@@ -92,7 +95,7 @@ public class BossHealthBar : MonoBehaviour
             label.transform.SetParent(transform, false);
             _label = label.AddComponent<TextMeshPro>();
             _label.font = font;
-            _label.text = "SLIMER";
+            _label.text = !string.IsNullOrEmpty(_name) ? _name : _boss is RoadBoss own && !string.IsNullOrEmpty(own.BarName) ? own.BarName : "THE GLUTTON";   // (each boss its own)
             _label.fontSize = 0.5f;   // the pixel font's 8 px to the em at one art pixel each (measured)
             _label.textWrappingMode = TextWrappingModes.NoWrap;
             _label.color = new Color32(232, 224, 255, 255);
@@ -120,17 +123,18 @@ public class BossHealthBar : MonoBehaviour
 
     void Place()
     {
-        var body = _boss.BodyCollider ? _boss.BodyCollider.bounds : _boss.Body.bounds;
+        var body = _boss.BodyBounds;
         // Centred over its torso, which sits off its collider's middle - the
         // same in every boss (one art), so it's a share of its scale,
         // mirrored as it turns (measured: where most of its pixels are).
-        float torso = -TorsoOffset * _boss.Body.transform.lossyScale.x;
+        float torso = _boss is EnemyStateMachineSlimeBoss ? -TorsoOffset * _boss.Body.transform.lossyScale.x : 0f;   // (the slime's torso is off its middle)
         // A set height over its feet - just over its head (as it stands, not
         // following its frames as they raise its club and slump), its name
         // under it over the top of its head; never off the top of the picture.
         // (The smallest bosses' a few pixels higher, easing to none by the mid-sized.)
         float small = Mathf.Clamp01((SmallUntil - _boss.Body.transform.lossyScale.y) / SmallFade);
-        float y = body.min.y + _headOverFeet + (gapPixels + smallGapPixels * small) * SpikeTrap.PixelSize + BarHeight * 0.5f * ArtPixel;
+        float lift = _boss is RoadBoss raised ? raised.BarLiftPixels : 0f;
+        float y = body.min.y + _headOverFeet + (gapPixels + smallGapPixels * small + lift) * SpikeTrap.PixelSize + BarHeight * 0.5f * ArtPixel;
         var cam = SpatialEmulator.Demo.PitDemoGame.HudCamera;
         // (The biggest bosses' heads come near the top: there it stays as
         // high as it goes, its name under it over their heads.)
@@ -157,19 +161,19 @@ public class BossHealthBar : MonoBehaviour
 
     void LateUpdate()
     {
-        if (!_boss) { Destroy(gameObject); return; }
+        if (!RoadFoe.Here(_boss)) { Destroy(gameObject); return; }
         // Its head: the top of its standing frames (the tallest seen), not
         // its attacks' raised club.
         var frame = _boss.Body.sprite;
         if (frame && frame.name.StartsWith("idle"))
         {
-            var feet = (_boss.BodyCollider ? _boss.BodyCollider.bounds : _boss.Body.bounds).min.y;
+            var feet = (_boss.BodyBounds).min.y;
             float head = DrawnTop(_boss.Body) - feet;
             if (!_headFromIdle || head > _headOverFeet) _headOverFeet = head;
             _headFromIdle = true;
         }
         Place();
-        float frac = _boss.MaxHealth > 0 ? Mathf.Clamp01((float)_boss.enemyHealth / _boss.MaxHealth) : 0f;
+        float frac = _boss.MaxHealth > 0 ? Mathf.Clamp01((float)_boss.Health / _boss.MaxHealth) : 0f;
         if (frac < _shownFrac - 0.0001f) _hitAt = Time.time;
         _shownFrac = frac;
         // The white trail waits, then runs down to the red.

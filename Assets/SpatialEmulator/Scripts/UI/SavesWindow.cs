@@ -71,7 +71,7 @@ namespace SpatialEmulator.UI
         {
             _dialog.SetActive(false);
             Clear();
-            MobileRetroDepthLayerStack.Paused = GamePicker.IsOpen || SettingsScreen.IsOpen || LeaderboardWindow.IsOpen;
+            MobileRetroDepthLayerStack.Paused = GamePicker.IsOpen || SettingsScreen.IsOpen || LeaderboardWindow.IsOpen || MenuPause.Held;   // (opened from a menu that's still open: still held)
         }
 
         void LateUpdate()

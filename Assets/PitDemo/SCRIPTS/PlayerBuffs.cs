@@ -18,5 +18,44 @@ public static class PlayerBuffs
     public static bool Shield => Time.time < ShieldUntil;
     public static bool ShieldShowing => Time.time < ShieldUntil && Time.time >= ShieldFrom;
 
-    public static void Reset() => SwordFrom = SwordUntil = ShieldFrom = ShieldUntil = -1f;
+    /// Viking food: she's big (BigScale) until BigUntil - her sword's blows BigDamage times as hard.
+    public static float BigUntil = -1f;
+    public static bool Big => Time.time < BigUntil;
+    public const float BigScale = 1.45f;
+    public const int BigDamage = 5;
+    /// Her size now, growing or shrinking (PlayerScriptARIANAClips).
+    public static float BigNow = 1f;
+    /// Played as she shrinks back.
+    public static AudioClip ShrinkSound;
+    /// Food eaten: big (for longer, if she already is), and a flash of colour over her.
+    public static System.Action<Color> Ate;
+    public static void GoBig(float seconds, Color flash, AudioClip shrink)
+    {
+        BigUntil = Mathf.Max(BigUntil, Time.time) + (Big ? seconds * 0.5f : seconds);
+        if (shrink) ShrinkSound = shrink;
+        Ate?.Invoke(flash);
+    }
+
+    /// Played as a blow glances off her Shield Buff (Blocked).
+    public static AudioClip BlockSound;
+    static float s_nextBlock;
+
+    /// Something would have hurt her (a foe, a boss, a trap, a bomb) but her Shield Buff took it: a gold
+    /// pixel burst off her body, toward where it came from, and a ricochet. (Not more than one every 0.2 s.)
+    public static void Blocked(float fromX = float.NaN)
+    {
+        if (!Shield || Time.time < s_nextBlock) return;
+        var player = EndlessKnightDirector.Player;
+        if (!player || player.IsDead) return;
+        s_nextBlock = Time.time + 0.2f;
+        var body = RoadFoe.PlayerBody();
+        if (body.size == Vector3.zero) return;
+        float side = float.IsNaN(fromX) ? (player.transform.localScale.x < 0f ? -1f : 1f) : Mathf.Sign(fromX - body.center.x);
+        var at = new Vector3(body.center.x + side * body.extents.x * 0.45f, body.center.y + Random.Range(-0.15f, 0.2f) * body.extents.y, body.center.z - 0.02f);
+        FoeFx.GoldBurst(at, new Vector2(side, 0.35f));
+        if (BlockSound) PitAudio.PlayClip(BlockSound, 0.8f);
+        SpatialEmulator.Haptics.Play(SpatialEmulator.Haptics.Kind.Light);
+    }
+
+    public static void Reset() { SwordFrom = SwordUntil = ShieldFrom = ShieldUntil = -1f; BigUntil = -1f; }
 }

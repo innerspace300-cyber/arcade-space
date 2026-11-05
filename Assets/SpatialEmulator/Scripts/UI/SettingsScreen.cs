@@ -1,6 +1,6 @@
 // SettingsScreen.cs — the pixel-art Settings window (gear button beside
 // GAMES): controller status, when to show the on-screen controls, layer
-// spacing (live: the window fades while the slider is dragged so the
+// spacing (AR Frame mode, games that space out; live: the window fades while the slider is dragged so the
 // cabinet shows through), whether games resume from their newest save, and
 // whether the game picker shows in the cabinet's frame (Games in AR), the
 // SOUND window (music and SFX volumes, haptics: SettingsAudioRows), and
@@ -59,6 +59,7 @@ namespace SpatialEmulator.UI
 
         void Awake()
         {
+            noControllerText = "None connected. Pair one in iOS Settings > Bluetooth";
             window.SetActive(false);
             openButton.onClick.AddListener(Open);
             // Top right, faded (GAMES has the top left, or the cabinet's panel).
@@ -67,7 +68,8 @@ namespace SpatialEmulator.UI
             gear.anchoredPosition = new Vector2(-24f, gear.anchoredPosition.y + 18f);   // (as far in as the menu key, MenuDropdown)
             var fade = openButton.GetComponent<CanvasGroup>();
             if (!fade) fade = openButton.gameObject.AddComponent<CanvasGroup>();
-            fade.alpha = 0.55f;
+            fade.alpha = 0.35f;
+            gear.localScale = Vector3.one * 0.8f;   // (small and faint: out of the way)
             closeButton.onClick.AddListener(Close);
             touchControlsButton.onClick.AddListener(CycleTouchControls);
             resumeButton.onClick.AddListener(ToggleResume);
@@ -81,11 +83,16 @@ namespace SpatialEmulator.UI
             spacingSlider.maxValue = AppSettings.MaxLayerSpacingScale;
             spacingSlider.onValueChanged.AddListener(OnSpacingChanged);
             var trigger = spacingSlider.gameObject.AddComponent<EventTrigger>();
-            AddTrigger(trigger, EventTriggerType.PointerDown, () => { if (spacingSlider.interactable) windowGroup.alpha = draggingAlpha; });
+            AddTrigger(trigger, EventTriggerType.PointerDown, () => windowGroup.alpha = draggingAlpha);
             AddTrigger(trigger, EventTriggerType.PointerUp, () => windowGroup.alpha = 1f);
             GamepadInput.ControllerChanged += OnControllerChanged;
             ControlColorsWindow.Build(this);   // COLORS, beside ABOUT
             SettingsAudioRows.Build(this);     // SOUND (music, SFX, haptics), beside them
+            // Shorter rows (after SOUND and CAP have copied them as they were): each key's
+            // hint beside it, not on a line of its own over it - room for the keys below.
+            var rows = window.transform.Find("Safe Area/Panel/Rows");
+            foreach (string row in new[] { "ON-SCREEN CONTROLS", "RESUME SAVES", "GAMES IN AR" })
+                HintBesideKey(rows ? rows.Find(row) : null);
         }
 
         void OnDestroy()
@@ -99,6 +106,50 @@ namespace SpatialEmulator.UI
         {
             PlayerPrefs.Save(); // the slider only saves on close
             SetOpen(false);
+        }
+
+        // The row's Detail text moved into its key's strip (Value), to the right of the key,
+        // wrapping in what's left of the row's width; the strip as tall as the taller of the two.
+        static void HintBesideKey(Transform row)
+        {
+            var value = row ? row.Find("Value") as RectTransform : null;
+            var detail = row ? row.Find("Detail") as RectTransform : null;
+            if (!value || !detail || value.childCount == 0) return;
+            var key = (RectTransform)value.GetChild(0);
+            const float gap = 6f;
+            detail.SetParent(value, false);
+            detail.anchorMin = new Vector2(0f, 0f); detail.anchorMax = new Vector2(1f, 1f);
+            detail.pivot = new Vector2(0f, 0.5f);
+            detail.offsetMin = new Vector2(key.sizeDelta.x + gap, 0f);
+            detail.offsetMax = Vector2.zero;
+            var text = detail.GetComponent<TMP_Text>();
+            if (text) text.alignment = TextAlignmentOptions.MidlineLeft;
+            // The strip: at least the key's height, more if the hint wraps to more lines.
+            var fit = value.gameObject.AddComponent<HintHeight>();
+            fit.text = text; fit.key = key; fit.inset = key.sizeDelta.x + gap;
+        }
+
+        // Keeps a key's strip as tall as its hint needs (the hint can change: ON-SCREEN CONTROLS').
+        class HintHeight : MonoBehaviour
+        {
+            public TMP_Text text;
+            public RectTransform key;
+            public float inset;
+            LayoutElement _element;
+            string _shown;
+            float _width = -1f;
+
+            void LateUpdate()
+            {
+                if (!text) return;
+                float width = ((RectTransform)transform).rect.width - inset;
+                if (width <= 1f || (text.text == _shown && Mathf.Approximately(width, _width))) return;
+                _shown = text.text; _width = width;
+                if (!_element) _element = GetComponent<LayoutElement>();
+                float need = text.GetPreferredValues(text.text, width, 0f).y + 2f;
+                _element.preferredHeight = Mathf.Max(key.sizeDelta.y, need);
+                LayoutRebuilder.MarkLayoutForRebuild((RectTransform)transform.parent);
+            }
         }
 
         static void AddTrigger(EventTrigger trigger, EventTriggerType type, System.Action action)
@@ -121,21 +172,10 @@ namespace SpatialEmulator.UI
 
         void ShowSpacing(float value)
         {
-            bool cabinet = CrtCabinet.PlaysFlat, flat = FlatGames.Current || cabinet;
-            spacingSlider.interactable = !flat;
-            var sliderGroup = spacingSlider.GetComponent<CanvasGroup>();
-            if (!sliderGroup) sliderGroup = spacingSlider.gameObject.AddComponent<CanvasGroup>();
-            sliderGroup.alpha = flat ? 0.35f : 1f;
-            if (cabinet)
-            {
-                spacingValue.text = "Flat in the CRT cabinet - only the demo spaces out in it";
-                return;
-            }
-            if (flat)
-            {
-                spacingValue.text = "This game always plays flat - its art doesn't hold up spaced apart";
-                return;
-            }
+            // Only in AR Frame mode, and only for games that space out: the
+            // whole LAYER SPACING row is gone in the cabinet (CRT) mode and
+            // for the always-flat games.
+            spacingValue.transform.parent.gameObject.SetActive(!CrtEffect.On && !FlatGames.Current);
             spacingValue.text = value <= 0.001f ? "Flat - every layer on one plane"
                 : Mathf.Approximately(value, 1f) ? "Default"
                 : $"{value:0.0}x the default";
@@ -167,13 +207,32 @@ namespace SpatialEmulator.UI
                 "through the libretro MAME core. MAME is a registered trademark of Gregory Ember. " +
                 "This software is based in part on the work of the Independent JPEG Group.\n\n" +
                 "ART AND FONTS\n" +
-                "Pixel UI & HUD 4 and the Dead Revolver fonts by Dead Revolver. " +
-                "Ultimate Mobile Controls Kit by Downtown Game Studio. Used under their licences.\n\n" +
+                "Pixel UI & HUD 4, Pixel UI pack 3 and the Dead Revolver fonts by Dead Revolver. " +
+                "Ultimate Mobile Controls Kit by Downtown Game Studio. Digital Numbers font. " +
+                "Feel and Nice Vibrations by More Mountains. Used under their licences.\n\n" +
                 "ENDLESS KNIGHT (DEMO)\n" +
                 "Blood FX 1.0 and 2.0 by Raphael Hatencia (RagnaPixel Studio), under Creative Commons Attribution 4.0 " +
                 "(recoloured). Fruit icons by scrimsy (Trent Consalvo), under Creative Commons Attribution-ShareAlike 4.0. " +
                 "Diamonds & Gems by Random Precision Software. " +
-                "Trap, bomb and explosion sprites and sound effects used under their licences.\n\n" +
+                "Pixel Potions by Skulitom Rivskiy, made with PixelForge (CC0). Candy icons by acursedpixel. Dark crystal by Frakassets. " +
+                "Moonlit Shrine Ruins background art by KATO. Mountain Temple & Bamboo Forest from Nasha's Parallax Worlds. " +
+                "Starry Night backgrounds, the portal pack, the fairies, the Salamander Witch, Fantasy #25 (the viking), " +
+                "Gollux, the Cacodaemon, the Necromancer, Revenant, Zombie, Elder Dragon and Giant Toad packs, " +
+                "Fantasy Eggs, the 32x32 key pack, Fast Food by Captainskeleto, food and flower icons, " +
+                "Super Pixel Monsters Pack 2 by Will Tice / unTied Games (untiedgames.com), " +
+                "Rat by ggoolmool (ggoolmool.itch.io), the Fantasy #8 cat demon, " +
+                "and the gravestone, mushroom, trap, bomb and explosion sprites used under their licences.\n\n" +
+                "THE TIME CRYSTAL (DEMO)\n" +
+                "Animated Pixel Ships and Pixel Spaceships for SHMUP 2 by dylestorm (livingtheindie.com). " +
+                "Super Pixel Projectiles Packs 1 and 2 by Will Tice (untiedgames.com). " +
+                "3D Lasers and Jet engine effects by Hovl Studio. Combat drone by SovDigital. " +
+                "Magic Crystal by Creativekind. Sci-fi space backgrounds, Pixel Arsenal, Retro Arsenal and " +
+                "the coin sprites used under their licences.\n\n" +
+                "MUSIC AND SOUND\n" +
+                "Endless Knight music from AudioJungle (Elevate Audio and others). " +
+                "Boss Battle by Retro BGM Chan and Synthwave Retro 80s by Tunetank (Pixabay). " +
+                "Sound effects from AudioJungle, Toon Projectiles SFX, Pixel Arsenal, Retro Arsenal, " +
+                "Pixabay and the freesound community, used under their licences.\n\n" +
                 "Made with Unity. All trademarks are the property of their respective owners.\n\n" +
                 (licenseText ? Unwrap(licenseText.text) : "");
             // Blocks of whole paragraphs, each small enough for one text mesh.
@@ -204,6 +263,28 @@ namespace SpatialEmulator.UI
             copy.gameObject.SetActive(true);
         }
 
+        // The controller's POWER: a ten-bar meter in its colour (green, yellow under half, red under a fifth), the percent,
+        // and CHARGING on the cable. Nothing if it doesn't say.
+        static string PowerLine()
+        {
+            int level = GamepadInput.Battery(out bool charging);
+            if (level < 0) return "";
+            int bars = Mathf.Clamp(Mathf.CeilToInt(level / 10f), level > 0 ? 1 : 0, 10);
+            string colour = level < 20 ? "#FF4A4A" : level < 50 ? "#FFD23C" : "#5CF29A";
+            return $"\nPOWER <color={colour}>{new string('|', bars)}</color><color=#5A5470>{new string('|', 10 - bars)}</color> {level}%"
+                + (charging ? " CHARGING" : level < 20 ? " <color=#FF4A4A>LOW</color>" : "");
+        }
+
+        float _nextPower;
+
+        void LateUpdate()
+        {
+            // (kept current while it's open: a few seconds apart)
+            if (!s_open || Time.unscaledTime < _nextPower || GamepadInput.ControllerName == null) return;
+            _nextPower = Time.unscaledTime + 3f;
+            controllerStatus.text = $"Connected: {GamepadInput.ControllerName}{PowerLine()}";
+        }
+
         void OnControllerChanged(string name)
         {
             if (s_open) Refresh();
@@ -230,7 +311,7 @@ namespace SpatialEmulator.UI
         void Refresh()
         {
             string controller = GamepadInput.ControllerName;
-            controllerStatus.text = controller != null ? $"Connected: {controller}" : noControllerText;
+            controllerStatus.text = controller != null ? $"Connected: {controller}{PowerLine()}" : noControllerText;
 
             switch (AppSettings.TouchControls)
             {

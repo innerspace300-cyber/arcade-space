@@ -74,6 +74,7 @@ namespace SpatialEmulator.UI
         enum Order { Alphabetical, HeavyFirst, VerticalFirst }
         Order _order;
         TMP_Text _orderLabel;
+        Button _orderButton;
         public TMP_Text countLabel;
         public GameObject emptyState;
         public Button addRomButton;
@@ -132,6 +133,7 @@ namespace SpatialEmulator.UI
             AddScanButton();
             showAllButton.onClick.AddListener(ToggleShowAll);
             AddOrderButton();
+            s_self = this;
             GameSelection.LoadFailed += OnLoadFailed;
             GamepadInput.ControllerChanged += OnControllerChanged;
             window.SetActive(false);
@@ -173,17 +175,20 @@ namespace SpatialEmulator.UI
             // like any cabinet); the remembered game gone: start in the picker;
             // a full-screen-only one: straight into full screen, no AR at all.
             string last = GameSelection.Current;
-            if (last != Demo.PitDemoGame.GameName && GameSelection.CurrentPath == null) Open();
+            if (last != Demo.PitDemoGame.GameName && last != Demo.TimeCrystalGame.GameName && GameSelection.CurrentPath == null) Open();
             else if (GameCatalog.Find(last) is { FullScreenOnly: true }) FullScreenTest.EnterWithCabinet();
             ReportImports(imported);
         }
 
         public void Open()
         {
+            _openedFrame = Time.frameCount;   // (a controller's Cross that opened it - the menu's GAMES - doesn't also pick a game)
             SetOpen(true);
             ReportImports(RomLibrary.ImportLooseZips());
             Refresh();
             ScrollToCurrent();
+            // A controller starts on the playing game, framed in gold (ControllerMenuNav) from the off.
+            if (Gamepad.current != null) SetFocus(CurrentRowIndex());
         }
 
         // Scrolls the list just far enough to show the playing game's row.
@@ -332,10 +337,43 @@ namespace SpatialEmulator.UI
 
         // ---- controller ----
 
+        int _openedFrame = -1;
+
+        /// A controller's moved up past the first game onto the keys along the top (tabs, SHOW ALL, ADD ROM...):
+        /// ControllerMenuNav steers there until it comes back down.
+        public static bool HeaderFocus;
+
+        /// The game a controller has picked out (ControllerMenuNav frames it in gold), or null.
+        public static RectTransform FocusedRowRect { get; private set; }
+
+        static GamePicker s_self;
+        // The keys round the list, for a controller (ControllerMenuNav): which way each goes is by where it is.
+        public static Button AllKey => s_self ? s_self.showAllButton : null;
+        public static Button OrderKey => s_self ? s_self._orderButton : null;
+        public static Button CloseKey => s_self ? s_self.closeButton : null;
+        public static Button AddKey => s_self ? s_self.addRomButton : null;
+        public static Button ScanKey => s_self ? s_self._scanButton : null;
+        /// The list's window: a row scrolled past it isn't framed.
+        public static RectTransform ListView => s_self && s_self.list ? (s_self.list.viewport ? s_self.list.viewport : (RectTransform)s_self.list.transform) : null;
+
+        /// A controller's back on the games from the keys, the way it pressed (`held`: up -1, down 1) not moving it on.
+        public static void BackToGames(int held)
+        {
+            HeaderFocus = false;
+            if (!s_self) return;
+            s_self._repeatDir = held;
+            s_self._nextRepeat = Time.unscaledTime + s_self.repeatDelay;
+            // (Scrolled off, or a new list since: the top game showing, not one further down out of sight.)
+            if (!s_self.RowShowing(s_self.FocusedRow())) s_self.SetFocus(s_self.FirstShowingRow());
+        }
+
         void UpdateController()
         {
             var pad = Gamepad.current;
-            if (pad == null || !s_open || (filePicker && filePicker.IsOpen)) return;
+            var row = FocusedRow();
+            FocusedRowRect = pad != null && s_open && !HeaderFocus && row ? (RectTransform)row.transform : null;
+            if (!s_open) HeaderFocus = false;
+            if (pad == null || !s_open || (filePicker && filePicker.IsOpen) || Time.frameCount == _openedFrame || HeaderFocus) return;
 
             if (pad.buttonEast.wasPressedThisFrame) { Close(); return; }
             if (pad.buttonNorth.wasPressedThisFrame) { ToggleShowAll(); return; }
@@ -351,11 +389,14 @@ namespace SpatialEmulator.UI
             int dir = pad.dpad.up.isPressed || stick.y > 0.5f ? -1 : pad.dpad.down.isPressed || stick.y < -0.5f ? 1 : 0;
             if (dir == 0) { _repeatDir = 0; return; }
             if (dir == _repeatDir && Time.unscaledTime < _nextRepeat) return;
+            // Up off the first game: onto the keys along the top.
+            if (dir < 0 && _focus <= 0 && dir != _repeatDir) { HeaderFocus = true; _repeatDir = dir; return; }
             _nextRepeat = Time.unscaledTime + (dir == _repeatDir ? repeatInterval : repeatDelay);
             _repeatDir = dir;
             int count = ActiveRowCount();
             if (count == 0) return;
-            SetFocus(_focus < 0 ? CurrentRowIndex() : Mathf.Clamp(_focus + dir, 0, count - 1));
+            // (From what's on screen: a step on from a game scrolled out of sight would jump the list back to it.)
+            SetFocus(RowShowing(FocusedRow()) ? Mathf.Clamp(_focus + dir, 0, count - 1) : FirstShowingRow());
         }
 
         int ActiveRowCount()
@@ -363,6 +404,32 @@ namespace SpatialEmulator.UI
             int count = 0;
             foreach (var row in _rows) if (row.gameObject.activeSelf) count++;
             return count;
+        }
+
+        // The row's all in the list's window, as it's scrolled now.
+        bool RowShowing(GameRow row)
+        {
+            if (!row) return false;
+            var rect = (RectTransform)row.transform;
+            float top = -rect.anchoredPosition.y - rect.rect.height * (1 - rect.pivot.y);
+            float y = list.content.anchoredPosition.y;
+            return top >= y - 1f && top + rect.rect.height <= y + list.viewport.rect.height + 1f;
+        }
+
+        // The top row showing in the list's window.
+        int FirstShowingRow()
+        {
+            Canvas.ForceUpdateCanvases();
+            for (int i = 0; i < _rows.Count; i++)
+                if (_rows[i].gameObject.activeSelf && RowShowing(_rows[i])) return i;
+            return CurrentRowIndex();
+        }
+
+        // Back to the top of a new list - a controller on its first game, not the old one's place.
+        void ToTop()
+        {
+            list.verticalNormalizedPosition = 1;
+            SetFocus(Gamepad.current != null ? 0 : -1);
         }
 
         // The playing game's row, or the first.
@@ -396,12 +463,13 @@ namespace SpatialEmulator.UI
             key.anchoredPosition = new Vector2(all.anchoredPosition.x + all.sizeDelta.x + 4, all.anchoredPosition.y);
             _orderLabel = key.GetComponentInChildren<TMP_Text>(true);
             var button = key.GetComponent<Button>();
+            _orderButton = button;
             button.onClick = new Button.ButtonClickedEvent();
             button.onClick.AddListener(() =>
             {
                 _order = _order == Order.HeavyFirst ? Order.VerticalFirst : Order.HeavyFirst;
                 Refresh();
-                list.verticalNormalizedPosition = 1;
+                ToTop();
             });
         }
 
@@ -410,7 +478,7 @@ namespace SpatialEmulator.UI
             _showAll = !_showAll;
             _order = Order.Alphabetical;   // (back to A-Z)
             Refresh();
-            list.verticalNormalizedPosition = 1;
+            ToTop();
         }
 
         void Refresh()
@@ -495,7 +563,7 @@ namespace SpatialEmulator.UI
                     // Too heavy for AR: straight into full screen.
                     else if (game.game.FullScreenOnly && !FullScreenTest.Enabled) FullScreenTest.EnterWithCabinet();
                     // Tapping the game that's already on just goes back to it.
-                    if (game.game.name != GameSelection.Current || !(LibretroCore.IsRunning || Demo.PitDemoGame.IsRunning))
+                    if (game.game.name != GameSelection.Current || !(LibretroCore.IsRunning || Demo.LayeredDemo.AnyRunning))
                         GameSelection.Select(game.game.name);
                     Close();
                     break;
@@ -565,6 +633,8 @@ namespace SpatialEmulator.UI
             if (Mathf.Abs(list.content.anchoredPosition.y - _deleteScrollY) > 2) { HideDelete(); return; }
             if (!pointer.press.wasPressedThisFrame || !EventSystem.current) return;
             var data = new PointerEventData(EventSystem.current) { position = pointer.position.ReadValue() };
+            // (The list on a TV, a finger on the phone: where that lands on the TV's picture, or it never finds the button.)
+            if (TvMenuMirror.Active) { data.position = TvMenuMirror.ToTv(data.position); data.displayIndex = TvOutput.Display; }
             EventSystem.current.RaycastAll(data, _hits);
             var deleteButton = _deleteRow.deleteButton.transform;
             foreach (var hit in _hits)

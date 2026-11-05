@@ -170,18 +170,18 @@ PlayerSettings:
   androidMaxAspectRatio: 2.4
   androidMinAspectRatio: 1
   applicationIdentifier:
-    Android: com.unity.template.ar_mobile
+    Android: com.waynelamb.spatialemulator
     Standalone: com.unity.template.ar-mobile
     iPhone: com.waynelamb.spatialemulator
   buildNumber:
     Bratwurst: 0
     Standalone: 0
     VisionOS: 0
-    iPhone: 1
+    iPhone: 21
     tvOS: 0
   overrideDefaultApplicationIdentifier: 1
   AndroidBundleVersionCode: 1
-  AndroidMinSdkVersion: 34
+  AndroidMinSdkVersion: 26
   AndroidTargetSdkVersion: 0
   AndroidPreferredInstallLocation: 1
   AndroidPreferredDataLocation: 1
@@ -199,7 +199,7 @@ PlayerSettings:
   VertexChannelCompressionMask: 4054
   iPhoneSdkVersion: 988
   iOSSimulatorArchitecture: 1
-  iOSTargetOSVersionString: 15.0
+  iOSTargetOSVersionString: 26.0
   tvOSSdkVersion: 0
   tvOSSimulatorArchitecture: 1
   tvOSRequireExtendedGameController: 0
@@ -289,7 +289,7 @@ PlayerSettings:
   AndroidEnableTango: 0
   androidEnableBanner: 1
   androidUseLowAccuracyLocation: 0
-  androidUseCustomKeystore: 0
+  androidUseCustomKeystore: 1
   m_AndroidBanners:
   - width: 320
     height: 180

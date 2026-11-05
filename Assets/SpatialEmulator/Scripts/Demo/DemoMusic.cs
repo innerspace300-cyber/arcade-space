@@ -7,7 +7,10 @@
 // the MUSIC slider can be heard as it moves. While the knight rests (and on
 // as she sleeps) the rest music (Resources/Music/RestTheme: "meditation")
 // takes over, from its start each time she sits down; as she gets up it
-// fades away and the soundtrack comes back, from its beginning.
+// fades away and the soundtrack comes back, from its beginning. Levels 2 to
+// 4 have their own (Resources/Music/Level2Theme: Elevate Audio's "8 Bit
+// Arcade Chiptune Adventure", its loop; Level3Theme: "Japan"; Level4Theme:
+// "Dark Synth Cyberpunk Background Loop"), each fading in as she arrives there.
 
 using SpatialEmulator.UI;
 using UnityEngine;
@@ -20,9 +23,11 @@ namespace SpatialEmulator.Demo
         const float RestLoudness = 0.7f;
         const float FadeSeconds = 0.6f;
         const float RestFadeSeconds = 1.5f, WakeFadeSeconds = 0.8f;
+        const float LevelFadeSeconds = 3f;   // (a level's own music fading in as she arrives)
 
         static DemoMusic s_player;
         Track _theme, _rest;
+        Track[] _levels;   // (a level's own music, by its number: none for the theme's)
 
         // One piece of music, faded in and out (paused at silence, so it picks up where it was).
         class Track
@@ -73,6 +78,9 @@ namespace SpatialEmulator.Demo
             s_player = go.AddComponent<DemoMusic>();
             s_player._theme = new Track(go.transform, "Theme", theme, Loudness);
             s_player._rest = new Track(go.transform, "Rest", Resources.Load<AudioClip>("Music/RestTheme"), RestLoudness);
+            s_player._levels = new Track[5];
+            for (int n = 2; n <= 4; n++)
+                s_player._levels[n] = new Track(go.transform, "Level " + n, Resources.Load<AudioClip>("Music/Level" + n + "Theme"), Loudness);
         }
 
         void Update()
@@ -83,8 +91,18 @@ namespace SpatialEmulator.Demo
             bool resting = knight && knight.IsResting && !knight.IsDead && _rest.source.clip;
             bool on = demo && !paused;
             float fade = on ? (resting ? RestFadeSeconds : WakeFadeSeconds) : FadeSeconds;
-            // The soundtrack: from the top again after a rest or a ROM game; paused, where it was.
-            _theme.Fade(on && !resting ? 1f : 0f, fade, !demo || resting);
+            // Which soundtrack: a level's own there (when it has one), the theme everywhere else.
+            int level = PitDemoGame.Level;
+            bool own = level >= 0 && level < _levels.Length && _levels[level] != null && _levels[level].source.clip;
+            // The soundtrack: from the top again after a rest, a ROM game or a level of its own; paused, where it was.
+            _theme.Fade(on && !resting && !own ? 1f : 0f, fade, !demo || resting || own);
+            // A level's own: fading in slowly as she gets there (from its top), back the same way after a rest.
+            for (int n = 0; n < _levels.Length; n++)
+            {
+                if (_levels[n] == null) continue;
+                bool here = own && n == level;
+                _levels[n].Fade(on && !resting && here ? 1f : 0f, on && !resting && here ? LevelFadeSeconds : fade, !demo || resting || !here);
+            }
             // The rest music: from its start each time she sits down (paused, it waits).
             _rest.Fade(on && resting ? 1f : 0f, fade, !(paused && resting));
         }

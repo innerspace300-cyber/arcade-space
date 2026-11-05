@@ -16,6 +16,8 @@ public class ExplosionDamage : MonoBehaviour
     public float clearHeight = 0.62f;
     [Tooltip("When the cloud is on the ground, seconds after the explosion starts (frames 2-15 at 24 fps).")]
     public float from = 0.08f, until = 0.66f;
+    [Tooltip("Only well inside the cloud: her body's middle within it and her feet in its lower part - on its edge, or jumping over it, she's safe.")]
+    public bool tight;
 
     PlayerScriptARIANAClips _player;
     SpriteRenderer _playerBody;
@@ -41,7 +43,13 @@ public class ExplosionDamage : MonoBehaviour
         var cloud = new Bounds(
             new Vector3(transform.position.x, transform.position.y + clearHeight * 0.5f, _playerBody.bounds.center.z),
             new Vector3(halfWidthPixels * 2f * pixel, clearHeight, 10f));
-        if (!cloud.Intersects(_playerBody.bounds)) return;
+        if (tight)
+        {
+            // (her middle inside its middle half across, her feet in its lower half)
+            var her = _playerBody.bounds;
+            if (Mathf.Abs(her.center.x - cloud.center.x) > cloud.extents.x * 0.5f || her.min.y > cloud.min.y + clearHeight * 0.5f) return;
+        }
+        else if (!cloud.Intersects(_playerBody.bounds)) return;
         _hit = true;
         BombGuy.Hits++;
         // IncreaseHP ignores a change that would go below 0, so the last hit takes what's left.

@@ -91,6 +91,9 @@ namespace SpatialEmulator.Editor
                 pbx.AddFrameworkToProject(frameworkTargetGuid, framework, false);
             // Plugins/iOS/SEGameCenter.mm (ENDLESS KNIGHT's leaderboard).
             pbx.AddFrameworkToProject(frameworkTargetGuid, "GameKit.framework", false);
+            // Plugins/iOS/SEHaptics.mm and SEDevice.mm: the controller's rumble and battery.
+            foreach (var framework in new[] { "CoreHaptics.framework", "GameController.framework" })
+                pbx.AddFrameworkToProject(frameworkTargetGuid, framework, false);
 
             pbx.WriteToFile(pbxPath);
 
@@ -113,7 +116,31 @@ namespace SpatialEmulator.Editor
             // The share sheet's Save Image (ScreenCap, Plugins/iOS/SEShare.mm)
             // adds to Photos, which iOS only allows with a reason given.
             plist.root.SetString("NSPhotoLibraryAddUsageDescription", "ARcade saves your screen caps to Photos.");
+            // The TV (Screen Mirroring to an Apple TV) as a screen of the app's own, for
+            // TvOutput's picture - added beside Unity's own scene configuration, not over it
+            // (see the NOTE at the top). Plugins/iOS/SEExternalDisplay.mm is its delegate.
+            var manifest = plist.root["UIApplicationSceneManifest"] as PlistElementDict;
+            var configs = manifest?["UISceneConfigurations"] as PlistElementDict;
+            if (configs != null)
+            {
+                var external = configs.CreateArray("UIWindowSceneSessionRoleExternalDisplayNonInteractive").AddDict();
+                external.SetString("UISceneConfigurationName", "TV");
+                external.SetString("UISceneDelegateClassName", "SEExternalDisplayScene");
+            }
             plist.WriteToFile(plistPath);
+
+            // UnityRuntime.framework's binary is built for the project's minimum iOS,
+            // but its Info.plist keeps Unity's own 15.0 - and App Store Connect rejects
+            // a framework whose plist and binary disagree (ITMS 90208, build 9 with
+            // minimum iOS 26). Its plist gets the app's minimum.
+            string runtimePlistPath = Path.Combine(pathToBuiltProject, "Frameworks/UnityRuntime.framework/Info.plist");
+            if (File.Exists(runtimePlistPath))
+            {
+                var runtimePlist = new PlistDocument();
+                runtimePlist.ReadFromFile(runtimePlistPath);
+                runtimePlist.root.SetString("MinimumOSVersion", PlayerSettings.iOS.targetOSVersionString);
+                runtimePlist.WriteToFile(runtimePlistPath);
+            }
         }
 
         static void AddSdkVersionPhase(PBXProject pbx, string targetGuid)

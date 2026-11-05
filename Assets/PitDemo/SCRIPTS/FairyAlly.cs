@@ -23,6 +23,13 @@ using UnityEngine;
 // place (behind the player's right shoulder) and faces the same way when
 // the player turns around, which flips the player's root: she's placed
 // after the player moves (LateUpdate, late in the frame), unmirrored.
+//
+// ARcade: on level 3 she's a flying black cat demon instead, on level 4 an orange one (Fantasy #8, Resources/Collect/
+// CatDemon, their pixels the knight's size): the same chests, the same visits, but in place of ice spikes it meows,
+// opens its mouth and fires a laser beam - a thin pixel-art neon line, as THE TIME CRYSTAL's drones' lock-on, purple
+// or green, with bloom and sparks at its mouth and where it strikes, and THE TIME CRYSTAL's laser sound - turning
+// onto the nearest target and destroying any foe it touches.
+// Bosses are drained, not felled: each beam takes a set share of their health (three beams at most, a dragon five).
 [DefaultExecutionOrder(100)]
 public class FairyAlly : MonoBehaviour
 {
@@ -74,7 +81,10 @@ public class FairyAlly : MonoBehaviour
     [Tooltip("Sorting layer and order: over the Slime Boss (on Default), under the Holy Slash.")]
     public string spikeSortingLayer = "Default";
     public int spikeSortingOrder = 150;
+    const int OverFoesOrder = 222;   // ARcade: her spikes and bursts, over the foes (205-217) and the knight's blows (219)
     public float impactFps = 24f;
+    [Tooltip("The sparks where a spike breaks (FoeFx.Impact).")]
+    public Color impactColor = new Color(0.55f, 0.9f, 1f);
     [Tooltip("Played when a spike hits the boss (one at random).")]
     public AudioClip[] hitSounds;
     [Range(0f, 1f)] public float shotVolume = 0.35f;
@@ -103,9 +113,15 @@ public class FairyAlly : MonoBehaviour
     /// Over the chest, not yet collected (EndlessKnightDirector holds new
     /// spawns meanwhile, as for gems).
     public bool Waiting => _state == State.Rising || _state == State.Waiting;
-    EnemyStateMachineSlimeBoss _boss;
+    IRoadBoss _boss;
     readonly List<BombGuy> _bombs = new List<BombGuy>();
     readonly HashSet<BombGuy> _shotAt = new HashSet<BombGuy>();
+    readonly HashSet<RoadEnemy> _foesShotAt = new HashSet<RoadEnemy>();   // (the levels' own small foes: one spike in the air at each - then another, till it's dead)
+
+    /// Its spike at `foe` has landed (or gone): she can shoot at it again if it's still up.
+    public void SpikeDone(RoadEnemy foe) { if (foe) _foesShotAt.Remove(foe); }
+    readonly HashSet<SpikeTrap> _trapsShotAt = new HashSet<SpikeTrap>();   // (level 2's tentacles: one spike each)
+    public void SpikeDone(SpikeTrap trap) { if (trap) _trapsShotAt.Remove(trap); }
 
     public static FairyAlly Current { get; private set; }
 
@@ -127,6 +143,298 @@ public class FairyAlly : MonoBehaviour
     void OnDestroy()
     {
         if (Current == this) Current = null;
+        if (_beam) Destroy(_beam);
+    }
+
+    // ---- level 4's cat demon ----
+
+    static int Level => SpatialEmulator.Demo.PitDemoGame.Level;
+    bool Cat => Level >= 3 && _catIdle != null;
+    const float CatFps = 10f, CatChargeFps = 12f, CatRecoverFps = 14f;
+    const float BeamSeconds = 1.4f, CatRest = 0.9f, BeamLength = 16f, BeamTurn = 360f;   // (seconds; world units; degrees a second)
+    const int CatChargeFrames = 5, CatRecoverFrom = 5, CatFrames_ = 11;
+    static Color BeamColor => Level == 3 ? new Color(0.72f, 0.2f, 1f) : new Color(0.25f, 1f, 0.35f);
+    static readonly Vector2 CatMouth = new Vector2(-1f, 14f);   // (its art's pixels from its middle, at full stretch)
+    Sprite[] _catIdle, _catMove, _catAttack;
+    bool _catFiring, _catLeft;
+    const int BeamChips = 7;
+    const float BossShare = 1f / 3f, DragonShare = 1f / 5f;
+    int _beamChips;
+    float _catFrom, _beamAngle, _nextChip;
+    GameObject _beam;
+    SpriteRenderer _beamGlow, _beamLine, _beamCore, _mouthGlow, _hitGlow;
+    float _nextSpark;
+    int _beamLevel, _catLevel;
+    static Sprite s_beamPixel, s_mouthPixel;
+    static AudioClip s_meow;
+    // Hard pixels bursting at its mouth, over where the beam starts.
+    const int MouthPixels = 8;
+    readonly SpriteRenderer[] _mouthPixels = new SpriteRenderer[MouthPixels];
+    float _nextMouthStep;
+    TimeCrystal.TcLaserVoice _laser;
+    bool _laserOn;
+
+    void LoadCat()
+    {
+        _catLeft = false;
+        if (Level < 3) return;
+        if (_catIdle != null && _catLevel == Level) return;
+        _catLevel = Level;
+        // (one of its pixels the size of one of the knight's)
+        float perUnit = Mathf.Abs(transform.lossyScale.y) / RoadFoe.Pixel;
+        string kind = Level == 3 ? "black_" : "";
+        _catIdle = CatSheet(kind + "idle", perUnit);
+        _catMove = CatSheet(kind + "move", perUnit);
+        _catAttack = CatSheet(kind + "attack", perUnit);
+        if (_catIdle == null || _catMove == null || _catAttack == null) { _catIdle = null; return; }
+    }
+
+    static Sprite[] CatSheet(string name, float perUnit)
+    {
+        var sheet = Resources.Load<Texture2D>("Collect/CatDemon/cat_" + name);
+        if (!sheet) return null;
+        var frames = new Sprite[sheet.width / 64];
+        for (int i = 0; i < frames.Length; i++)
+            frames[i] = Sprite.Create(sheet, new Rect(i * 64, 0, 64, 64), new Vector2(0.5f, 0.5f), perUnit);
+        return frames;
+    }
+
+    Sprite CatFrames(Sprite[] frames) => frames[(int)(Time.time * CatFps) % frames.Length];
+
+    // Its mouth, in the world: stretched wide over the attack frames.
+    Vector3 Mouth()
+    {
+        var at = CatMouth * Pixel;
+        return transform.position + new Vector3(_catLeft ? -at.x : at.x, at.y, -0.01f);
+    }
+
+    // The nearest thing on screen to burn: a level's small foe, a hell hand or the boss.
+    bool CatTarget(out Vector3 at)
+    {
+        at = default;
+        var from = transform.position;
+        float best = float.MaxValue;
+        if (RoadFoe.Here(_boss) && !_boss.IsDead && _boss.Body && OnScreen(_boss.Body.bounds))
+        {
+            at = _boss is RoadBoss own && own.HitPoint(out var point) ? point : RoadFoe.Drawn(_boss.Body).center;
+            best = Mathf.Abs(at.x - from.x);
+        }
+        foreach (var f in RoadEnemy.All)
+        {
+            if (!f || !f.Targetable || !OnScreen(f.Art.bounds)) continue;
+            float d = Mathf.Abs(f.Art.bounds.center.x - from.x);
+            if (d < best) { best = d; at = f.Art.bounds.center; }
+        }
+        foreach (var t in SpikeTrap.Tentacles)
+        {
+            if (!t || !t.Targetable || !OnScreen(t.Art.bounds)) continue;
+            float d = Mathf.Abs(t.Art.bounds.center.x - from.x);
+            if (d < best) { best = d; at = RoadFoe.Drawn(t.Art).center; }
+        }
+        return best < float.MaxValue;
+    }
+
+    void CatAttack()
+    {
+        if (Time.time >= _nextLook)
+        {
+            _nextLook = Time.time + 0.25f;
+            _boss = null;
+            foreach (var b in RoadFoe.Bosses()) if (!b.IsDead) { _boss = b; break; }
+        }
+        bool target = CatTarget(out var aim);
+        if (!_catFiring)
+        {
+            // Facing what it's after - behind the knight too - or, with nothing about, the way she faces.
+            _catLeft = target ? aim.x < transform.position.x : !_player.FacingRight;
+            if (Time.time < _nextFire || !target) return;
+            _catFiring = true;
+            _catFrom = Time.time;
+            _beamChips = 0;
+            _catLeft = aim.x < transform.position.x;
+            var to = aim - transform.position;
+            _beamAngle = Mathf.Atan2(to.y, to.x) * Mathf.Rad2Deg;
+        }
+        _shootingUntil = Time.time + 0.2f;
+        float t = Time.time - _catFrom, charge = CatChargeFrames / CatChargeFps;
+        if (t < charge)
+        {
+            _renderer.sprite = _catAttack[Mathf.Min((int)(t * CatChargeFps), CatChargeFrames - 1)];
+            return;
+        }
+        if (t < charge + BeamSeconds)
+        {
+            // Mouth wide, shuddering, the beam out of it.
+            _renderer.sprite = _catAttack[(int)(t * 16f) % 2 == 0 ? 4 : 3];
+            Beam(target, aim);
+            return;
+        }
+        StopBeam();
+        int frame = CatRecoverFrom + (int)((t - charge - BeamSeconds) * CatRecoverFps);
+        if (frame < CatFrames_) { _renderer.sprite = _catAttack[frame]; return; }
+        _catFiring = false;
+        _nextFire = Time.time + CatRest;
+    }
+
+    // Hard pixel lines over a soft glow, in this level's colour.
+    // Hovering (her pixels): one slow, smooth rise and fall - easing down to a small one while it's firing.
+    const float BobFps = 0.6f, BobPixels = 7f, FiringBob = 0.3f, BobEase = 1.5f;
+    float _bobSize = 1f;
+    float CatBob()
+    {
+        if (!Cat) return 0f;
+        _bobSize = Mathf.MoveTowards(_bobSize, _catFiring ? FiringBob : 1f, BobEase * Time.deltaTime);
+        return Mathf.Sin(Time.time * BobFps * Mathf.PI * 2f) * BobPixels * _bobSize;
+    }
+
+    // Its meow, a little higher or lower each time: on being picked up, and with every beam.
+    static void Meow()
+    {
+        if (!s_meow) s_meow = Resources.Load<AudioClip>("Collect/CatDemon/cat_meow");
+        var voice = PitAudio.Voice(s_meow, 1f);
+        if (voice) voice.pitch = Random.Range(0.92f, 1.16f);   // (no lower: its voice is removed at the clip's own length)
+    }
+
+    void MakeBeam()
+    {
+        if (_beam) Destroy(_beam);
+        _beamLevel = Level;
+        if (!s_beamPixel)
+        {
+            var t = new Texture2D(1, 1) { filterMode = FilterMode.Point };
+            t.SetPixel(0, 0, Color.white);
+            t.Apply();
+            s_beamPixel = Sprite.Create(t, new Rect(0, 0, 1, 1), new Vector2(0f, 0.5f), 1f);
+            s_mouthPixel = Sprite.Create(t, new Rect(0, 0, 1, 1), new Vector2(0.5f, 0.5f), 1f);
+        }
+        _beam = new GameObject("CAT BEAM");
+        _beam.layer = LayerMask.NameToLayer("PitActors");
+        var colour = BeamColor;
+        _beamGlow = BeamPart("GLOW", FoeFx.GlowSprite, OverFoesOrder - 1, new Color(colour.r, colour.g, colour.b, 0.45f));
+        _beamLine = BeamPart("LINE", s_beamPixel, OverFoesOrder, colour);
+        _beamCore = BeamPart("CORE", s_beamPixel, OverFoesOrder + 1, Color.Lerp(colour, Color.white, 0.75f));
+        _mouthGlow = BeamPart("MOUTH", FoeFx.GlowSprite, OverFoesOrder + 2, new Color(colour.r, colour.g, colour.b, 0.8f));
+        _hitGlow = BeamPart("STRIKE", FoeFx.GlowSprite, OverFoesOrder + 2, new Color(colour.r, colour.g, colour.b, 0.85f));
+        for (int i = 0; i < MouthPixels; i++) _mouthPixels[i] = BeamPart("MOUTH PIXEL", s_mouthPixel, OverFoesOrder + 3 + (i == 0 ? 1 : 0), colour);
+    }
+
+    SpriteRenderer BeamPart(string name, Sprite sprite, int order, Color colour)
+    {
+        var go = new GameObject(name);
+        go.layer = _beam.layer;
+        go.transform.SetParent(_beam.transform, false);
+        var sr = go.AddComponent<SpriteRenderer>();
+        sr.sprite = sprite;
+        sr.color = colour;
+        sr.sortingLayerName = ChestGem.KnightLayer;
+        sr.sortingOrder = order;
+        return sr;
+    }
+
+    void Beam(bool target, Vector3 aim)
+    {
+        if (!_beam || _beamLevel != Level) MakeBeam();
+        _beam.SetActive(true);
+        if (!_laserOn)
+        {
+            _laserOn = true;
+            if (_laser == null) _laser = new TimeCrystal.TcLaserVoice(transform, TimeCrystal.TcSfx.Clip("laser_beam"));
+            _laser.Start();
+            Meow();   // (a loud MEOW with every beam, over the laser's own sound)
+        }
+        _laser.Update(true);
+        var mouth = Mouth();
+        if (target)
+        {
+            // Swinging onto it, not snapping.
+            var to = aim - mouth;
+            _beamAngle = Mathf.MoveTowardsAngle(_beamAngle, Mathf.Atan2(to.y, to.x) * Mathf.Rad2Deg, BeamTurn * Time.deltaTime);
+        }
+        var way = new Vector3(Mathf.Cos(_beamAngle * Mathf.Deg2Rad), Mathf.Sin(_beamAngle * Mathf.Deg2Rad), 0f);
+        _catLeft = way.x < 0f;
+        _beam.transform.SetPositionAndRotation(mouth, Quaternion.Euler(0f, 0f, _beamAngle));
+        // All it touches.
+        float px = Pixel, nearest = float.MaxValue, strikeAt = 0f;
+        foreach (var f in RoadEnemy.All.ToArray())
+            if (f && f.Targetable && OnBeam(mouth, way, RoadFoe.Drawn(f.Art), ref nearest, ref strikeAt)) f.Hit(999);
+        foreach (var t in SpikeTrap.Tentacles.ToArray())
+            if (t && t.Targetable && OnBeam(mouth, way, RoadFoe.Drawn(t.Art), ref nearest, ref strikeAt)) t.Kill();
+        if (RoadFoe.Here(_boss) && !_boss.IsDead && _boss.Body && OnBeam(mouth, way, RoadFoe.Drawn(_boss.Body), ref nearest, ref strikeAt)
+            && Time.time >= _nextChip && _beamChips < BeamChips)
+        {
+            // A beam drains a set share of a boss, fast, however long it stays on it: three to fell any boss, five a dragon.
+            _nextChip = Time.time + 0.1f;
+            _beamChips++;
+            var own = _boss as RoadBoss;
+            int chip = own ? Mathf.CeilToInt(own.MaxHealth * (own.IsDragon ? DragonShare : BossShare) / BeamChips) : spikeDamage;
+            _boss.Chip(chip, Mathf.Sign(way.x) * knockback * px);
+        }
+
+        // Two hard lines, the length of it (to the middle of what it strikes), over its bloom.
+        bool hitting = nearest < float.MaxValue;
+        float length = hitting ? strikeAt : BeamLength, glowUnit = FoeFx.GlowSprite.bounds.size.x, flicker = 1f + 0.15f * Mathf.Sin(Time.time * 40f);
+        var colour = BeamColor;
+        _beamLine.transform.localScale = new Vector3(length, 3f * px, 1f);
+        _beamCore.transform.localScale = new Vector3(length, 1f * px, 1f);
+        _beamGlow.transform.localPosition = Vector3.right * length * 0.5f;
+        _beamGlow.transform.localScale = new Vector3(length / glowUnit * 1.3f, 18f * px / glowUnit * flicker, 1f);
+        _mouthGlow.transform.localScale = Vector3.one * (18f * px / glowUnit * flicker);
+        _hitGlow.enabled = hitting;
+        if (hitting)
+        {
+            _hitGlow.transform.localPosition = Vector3.right * length;
+            _hitGlow.transform.localScale = Vector3.one * (26f * px / glowUnit * flicker);
+        }
+        // A block of hard pixels over the start of the beam, flickering in steps.
+        _mouthPixels[0].transform.localScale = new Vector3(6f * px, 6f * px, 1f);
+        _mouthPixels[0].color = Color.Lerp(colour, Color.white, 0.8f);
+        if (Time.time >= _nextMouthStep)
+        {
+            _nextMouthStep = Time.time + 0.05f;
+            for (int i = 1; i < MouthPixels; i++)
+            {
+                var spot = Random.insideUnitCircle * 7f;
+                _mouthPixels[i].transform.localPosition = new Vector3(Mathf.Round(spot.x) * px, Mathf.Round(spot.y) * px, 0f);
+                float side = Random.Range(2, 5) * px;
+                _mouthPixels[i].transform.localScale = new Vector3(side, side, 1f);
+                _mouthPixels[i].color = i % 3 == 0 ? Color.white : colour;
+            }
+        }
+        // Pixel sparks at its mouth, and flung off where it strikes.
+        if (Time.time >= _nextSpark)
+        {
+            _nextSpark = Time.time + 0.05f;
+            FoeFx.Sparkle(mouth + (Vector3)Random.insideUnitCircle * 3f * px, Random.value < 0.6f ? colour : Color.white, 0.6f);
+            if (hitting)
+            {
+                var strike = mouth + way * length;
+                FoeFx.Impact(strike + Vector3.back * 0.02f, colour, new Vector2(-way.x, 0.4f), 0.5f, 3);
+                FoeFx.Sparkle(strike + (Vector3)Random.insideUnitCircle * 5f * px, Random.value < 0.6f ? colour : Color.white, 0.8f);
+            }
+        }
+    }
+
+    // The beam crosses these bounds (flat on the screen), and it's ahead of the mouth.
+    static bool OnBeam(Vector3 from, Vector3 way, Bounds b, ref float nearest, ref float strikeAt)
+    {
+        var middle = b.center;
+        var size = b.size;
+        size.z = 100f;
+        b.size = size;
+        if (!b.IntersectRay(new Ray(new Vector3(from.x, from.y, b.center.z), new Vector3(way.x, way.y, 0f)), out float distance) || distance > BeamLength) return false;
+        if (distance < nearest)
+        {
+            nearest = distance;
+            // (on along it as far as the thing's middle)
+            strikeAt = Mathf.Max(distance, Vector2.Dot((Vector2)(middle - from), (Vector2)way));
+        }
+        return true;
+    }
+
+    void StopBeam()
+    {
+        if (_beam) _beam.SetActive(false);
+        if (_laserOn && _laser != null) { _laserOn = false; _laser.Update(false); _laser.Stop(); }
     }
 
     void Start()
@@ -166,6 +474,7 @@ public class FairyAlly : MonoBehaviour
     public void Arrive(Vector3 from)
     {
         if (looks != null && looks.Length > 0) s_look = s_visits++ % looks.Length;
+        LoadCat();
         _state = State.Rising;
         _since = Time.time;
         _riseFrom = from;
@@ -179,6 +488,8 @@ public class FairyAlly : MonoBehaviour
 
     void Leave()
     {
+        StopBeam();
+        _catFiring = false;
         _state = State.Away;
         _renderer.enabled = false;
         transform.localPosition = _home;
@@ -202,13 +513,15 @@ public class FairyAlly : MonoBehaviour
 
     void Update()
     {
+        if (_laser != null && !_laserOn) _laser.Update(false);   // (its shut-off fading out)
         if (!_here) return;
         if (!_player || _player.IsDead) { Leave(); return; }
 
         float age = Time.time - _since;
         bool shooting = Time.time < _shootingUntil;
         var look = CurrentLook;
-        if (look != null && look.frames != null && look.frames.Length > 0)
+        if (Cat) { if (!_catFiring) _renderer.sprite = CatFrames(_state == State.Helping ? _catIdle : _catMove); }
+        else if (look != null && look.frames != null && look.frames.Length > 0)
             _renderer.sprite = look.frames[(int)(Time.time * (shooting ? shootingFps : fps)) % look.frames.Length];
 
         switch (_state)
@@ -232,7 +545,8 @@ public class FairyAlly : MonoBehaviour
                 if (age > waitTime) { Leave(); return; }
                 if (!Reached()) return;
                 _renderer.enabled = true;
-                PitAudio.PlayClip(collectSound, 0.9f);
+                if (Cat) Meow();
+                else PitAudio.PlayClip(collectSound, 0.9f);
                 _state = State.Flying;
                 _since = Time.time;
                 _flightFrom = _flightPosition;
@@ -249,30 +563,34 @@ public class FairyAlly : MonoBehaviour
         }
 
         // Helping: lifetime seconds from being collected, blinking out at the end.
-        float left = lifetime - flyTime - (Time.time - _since);
+        float left = lifetime * (Cat ? 2f : 1f) - flyTime - (Time.time - _since);   // (the cats stay twice as long)
         if (left <= 0f) { Leave(); return; }
         Blink(left);
 
         // Up a little while shooting.
         _lift = Mathf.MoveTowards(_lift, shooting ? shootingLiftPixels : 0f, 60f * Time.deltaTime);
 
+        if (Cat) { CatAttack(); return; }
         if (Time.time < _nextFire) return;
         if (Time.time >= _nextLook)
         {
             _nextLook = Time.time + 0.25f;
-            _boss = FindAnyObjectByType<EnemyStateMachineSlimeBoss>();
+            _boss = null;
+            foreach (var b in RoadFoe.Bosses()) if (!b.IsDead) { _boss = b; break; }
             _bombs.Clear();
             _bombs.AddRange(FindObjectsByType<BombGuy>(FindObjectsSortMode.None));
             _shotAt.RemoveWhere(b => !b);
+            _foesShotAt.RemoveWhere(f => !f);
+            _trapsShotAt.RemoveWhere(t => !t);
         }
 
-        // The nearest thing on screen to shoot: the boss, or a bomb guy
+        // The nearest thing on screen to shoot: the boss, a bomb guy or a level's small foe
         // (one spike each is enough).
         var from = _renderer.bounds.center;
         float best = float.MaxValue;
-        EnemyStateMachineSlimeBoss boss = null;
+        IRoadBoss boss = null;
         BombGuy bomb = null;
-        if (_boss && !_boss.IsDead && _boss.Body && OnScreen(_boss.Body.bounds))
+        if (RoadFoe.Here(_boss) && !_boss.IsDead && _boss.Body && OnScreen(_boss.Body.bounds))
         {
             best = Mathf.Abs(_boss.Body.bounds.center.x - from.x);
             boss = _boss;
@@ -283,11 +601,27 @@ public class FairyAlly : MonoBehaviour
             float d = Mathf.Abs(sr.bounds.center.x - from.x);
             if (d < best) { best = d; bomb = b; boss = null; }
         }
-        if (!boss && !bomb) return;
+        RoadEnemy foe = null;
+        foreach (var f in RoadEnemy.All)
+        {
+            if (!f || !f.Targetable || _foesShotAt.Contains(f) || !OnScreen(f.Art.bounds)) continue;
+            float d = Mathf.Abs(f.Art.bounds.center.x - from.x);
+            if (d < best) { best = d; foe = f; bomb = null; boss = null; }
+        }
+        SpikeTrap trap = null;
+        foreach (var t in SpikeTrap.Tentacles)
+        {
+            if (!t || !t.Targetable || _trapsShotAt.Contains(t) || !OnScreen(t.Art.bounds)) continue;
+            float d = Mathf.Abs(t.Art.bounds.center.x - from.x);
+            if (d < best) { best = d; trap = t; foe = null; bomb = null; boss = null; }
+        }
+        if (foe) _foesShotAt.Add(foe);
+        if (trap) _trapsShotAt.Add(trap);
+        if (boss == null && !bomb && !foe && !trap) return;
         if (bomb) _shotAt.Add(bomb);
         _nextFire = Time.time + fireInterval;
         _shootingUntil = Time.time + 0.4f;
-        Shoot(look, boss, bomb);
+        Shoot(look, boss, bomb, foe, trap);
     }
 
     // Her spot by the player as if they faced right, whichever way they face.
@@ -307,10 +641,10 @@ public class FairyAlly : MonoBehaviour
         if (parent)
         {
             var s = transform.localScale;
-            s.x = Mathf.Abs(s.x) * Mathf.Sign(parent.lossyScale.x);
+            s.x = Mathf.Abs(s.x) * Mathf.Sign(parent.lossyScale.x) * (Cat && _catLeft ? -1f : 1f);   // (a cat faces its way by its scale: flipX never showed on the phone)
             transform.localScale = s;
         }
-        transform.position = _inFlight ? _flightPosition : HomeWorld() + Vector3.up * (_lift * Pixel);
+        transform.position = _inFlight ? _flightPosition : HomeWorld() + Vector3.up * ((_lift + CatBob()) * Pixel);
     }
 
     static bool OnScreen(Bounds b)
@@ -322,7 +656,7 @@ public class FairyAlly : MonoBehaviour
         return b.max.x > cam.transform.position.x - halfWidth && b.min.x < cam.transform.position.x + halfWidth;
     }
 
-    void Shoot(Look look, EnemyStateMachineSlimeBoss boss, BombGuy bomb)
+    void Shoot(Look look, IRoadBoss boss, BombGuy bomb, RoadEnemy foe = null, SpikeTrap trap = null)
     {
         if (look == null || look.spikeFrames == null || look.spikeFrames.Length == 0) return;
         var go = new GameObject("ICE SPIKE");
@@ -331,8 +665,8 @@ public class FairyAlly : MonoBehaviour
             + Vector3.up * (Random.Range(-spreadPixels, spreadPixels) * Pixel);
         go.transform.localScale = Vector3.one * (Pixel * look.spikeFrames[0].pixelsPerUnit);
         var sr = go.AddComponent<SpriteRenderer>();
-        sr.sortingLayerName = spikeSortingLayer;
-        sr.sortingOrder = spikeSortingOrder;
+        sr.sortingLayerName = ChestGem.KnightLayer;
+        sr.sortingOrder = OverFoesOrder;   // (over the foes, the bosses and the knight's blows)
         sr.sprite = look.spikeFrames[0];
         var spike = go.AddComponent<IceSpike>();
         spike.frames = look.spikeFrames;
@@ -342,6 +676,8 @@ public class FairyAlly : MonoBehaviour
         spike.push = knockback * Pixel;
         spike.boss = boss;
         spike.bomb = bomb;
+        spike.foe = foe;
+        spike.trap = trap;
         spike.fairy = this;
         spike.look = look;
         spike.jitter = Random.Range(-spreadDegrees, spreadDegrees);
@@ -350,10 +686,12 @@ public class FairyAlly : MonoBehaviour
 
     /// A spike broke on its target at `at` (IceSpike): the burst, and on
     /// the boss the ice punch (a bomb has its own bang).
-    public void Hit(Look look, Vector3 at, bool sound)
+    public void Hit(Look look, Vector3 at, bool sound, SpriteRenderer spike = null)
     {
         if (sound && hitSounds != null && hitSounds.Length > 0)
             PlayOn(_hitVoices, ref _nextHitVoice, hitSounds[Random.Range(0, hitSounds.Length)], hitVolume);
+        // Icy sparks where it breaks, flung on the way it was flying.
+        FoeFx.Impact(at + Vector3.back * 0.02f, impactColor, new Vector2(at.x >= transform.position.x ? 1f : -1f, 0.3f), 0.8f, 6, over: spike);   // (over the foe, with the spike)
         if (look == null || look.impactFrames == null || look.impactFrames.Length == 0) return;
         var go = new GameObject("ICE BURST");
         go.layer = gameObject.layer;
@@ -361,8 +699,8 @@ public class FairyAlly : MonoBehaviour
         go.transform.localScale = Vector3.one * (Pixel * look.impactFrames[0].pixelsPerUnit);
         go.transform.rotation = Quaternion.Euler(0f, 0f, Random.Range(-20f, 20f));
         var sr = go.AddComponent<SpriteRenderer>();
-        sr.sortingLayerName = spikeSortingLayer;
-        sr.sortingOrder = spikeSortingOrder + 1;
+        sr.sortingLayerName = ChestGem.KnightLayer;
+        sr.sortingOrder = OverFoesOrder + 1;
         sr.flipX = Random.value < 0.5f;
         var fx = go.AddComponent<PitSpriteFx>();
         fx.frames = look.impactFrames;
@@ -376,9 +714,13 @@ public class FairyAlly : MonoBehaviour
         var voices = new AudioSource[count];
         for (int i = 0; i < count; i++)
         {
-            voices[i] = gameObject.AddComponent<AudioSource>();
+            // (each on an object of its own: the SFX volume's filter reaches one source an object)
+            var go = new GameObject("FAIRY VOICE");
+            go.transform.SetParent(transform, false);
+            voices[i] = go.AddComponent<AudioSource>();
             voices[i].playOnAwake = false;
             voices[i].spatialBlend = 0f;
+            SpatialEmulator.GameAudio.Fit(voices[i]);
         }
         return voices;
     }
@@ -405,12 +747,16 @@ public class IceSpike : MonoBehaviour
     public float speed = 2f;
     public int damage = 1;
     public float push;
-    public EnemyStateMachineSlimeBoss boss;
+    public IRoadBoss boss;
     public BombGuy bomb;
+    public RoadEnemy foe;
+    public SpikeTrap trap;
     [Tooltip("Degrees its aim is off by (the fairy's scatter).")]
     public float jitter;
     public FairyAlly fairy;
     public FairyAlly.Look look;
+
+    void OnDestroy() { if (fairy && foe) fairy.SpikeDone(foe); if (fairy && trap) fairy.SpikeDone(trap); }
 
     SpriteRenderer _renderer;
     Vector3 _direction = Vector3.right;
@@ -423,13 +769,17 @@ public class IceSpike : MonoBehaviour
         Steer();
     }
 
-    bool TargetAlive => bomb ? true : boss && !boss.IsDead && boss.Body && boss.Body.sprite;
+    bool TargetAlive => trap ? trap.Targetable : foe ? foe.Targetable : bomb ? true : RoadFoe.Here(boss) && !boss.IsDead && boss.Body && boss.Body.sprite;
 
     // The middle of what's drawn of it.
     Vector3 Middle()
     {
+        if (trap) return RoadFoe.Drawn(trap.Art).center;
+        if (foe) return RoadFoe.Drawn(foe.Art).center;
         if (bomb) return bomb.TryGetComponent<SpriteRenderer>(out var sr) ? sr.bounds.center : bomb.transform.position;
-        return EnemyStateMachineSlimeBoss.DrawnBounds(boss.Body).center;
+        if (boss is EnemyStateMachineSlimeBoss) return EnemyStateMachineSlimeBoss.DrawnBounds(boss.Body).center;
+        // (where on it they break: its hitAt, if it has one - the gazer's body, off its eye)
+        return boss is RoadBoss own && own.HitPoint(out var at) ? at : RoadFoe.Drawn(boss.Body).center;
     }
 
     void Steer()
@@ -457,9 +807,11 @@ public class IceSpike : MonoBehaviour
         float step = speed * Time.deltaTime;
         if (to.sqrMagnitude > step * step && Vector3.Dot(to, _direction) > 0f) return;
         var at = new Vector3(middle.x, middle.y, transform.position.z);
-        if (bomb) bomb.Detonate();
+        if (trap) trap.Kill();
+        else if (foe) foe.Kill();
+        else if (bomb) bomb.Detonate();
         else boss.Chip(damage, Mathf.Sign(_direction.x) * push);
-        if (fairy) fairy.Hit(look, at, sound: !bomb);
+        if (fairy) fairy.Hit(look, at, sound: !bomb, GetComponent<SpriteRenderer>());
         Destroy(gameObject);
     }
 }

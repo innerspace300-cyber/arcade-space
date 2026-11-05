@@ -121,7 +121,7 @@ namespace SpatialEmulator.Mobile
         static int s_devSettingsVersion;
         int _appliedDevSettingsVersion;
 
-        const int MaxLayers = 8;
+        const int MaxLayers = 9;   // (THE TIME CRYSTAL: its 8 depth groups and the player's own, over the HUD)
         const int MaxPixels = 512 * 256; // matches RD_MAX_WIDTH*RD_MAX_HEIGHT
         const int MaxCoreFramesPerUpdate = 3;
 
@@ -138,6 +138,8 @@ namespace SpatialEmulator.Mobile
         uint[] _zOrders = new uint[MaxLayers];
         // How deep each sits, in steps of the spacing (its z-order, or the demo's own Depths).
         readonly float[] _depths = new float[MaxLayers];
+        // Drawn after every other layer whatever its depth (LayeredDemo.Layer.onTop).
+        readonly bool[] _onTop = new bool[MaxLayers];
         Renderer[] _quads = new Renderer[MaxLayers];
         IntPtr _pixelScratch;   // width*height*4 bytes, sized for the largest board we target
         IntPtr _ownerScratch;   // width*height*2 bytes
@@ -159,7 +161,7 @@ namespace SpatialEmulator.Mobile
         void StartSelectedGame()
         {
             string game = GameSelection.Current;
-            if (game == PitDemoGame.GameName)
+            if (game == PitDemoGame.GameName || game == TimeCrystalGame.GameName)
             {
                 StartDemo(game);
                 return;
@@ -201,24 +203,44 @@ namespace SpatialEmulator.Mobile
             GameStarted?.Invoke(game);
         }
 
-        // The demo draws its 8 depth groups into render textures; they go on
-        // the same quads the emulator's layers use.
+        // A built-in demo (LayeredDemo) draws its depth groups into render
+        // textures; they go on the same quads the emulator's layers use.
         // announce: false for a respawn, which isn't a new game.
         // hidden: build the quads switched off (a respawn shows them once the new run has drawn).
         void StartDemo(string game, bool announce = true, bool hidden = false)
         {
-            if (!demoPrefab)
+            LayeredDemo demo;
+            if (game == TimeCrystalGame.GameName)
             {
-                Debug.LogError("[MobileRetroDepthLayerStack] no demo prefab assigned");
-                return;
+                var prefab = Resources.Load<GameObject>(TimeCrystalGame.PrefabName);
+                if (!prefab)
+                {
+                    Debug.LogError("[MobileRetroDepthLayerStack] no Resources/" + TimeCrystalGame.PrefabName + " (Tools > ARcade > Build Time Crystal Demo)");
+                    return;
+                }
+                demo = TimeCrystalGame.Launch(prefab);
             }
-            if (announce) PitDemoGame.ResetLevels();   // a new game starts at the first level
-            var demo = PitDemoGame.Launch(demoPrefab);
+            else
+            {
+                if (!demoPrefab)
+                {
+                    Debug.LogError("[MobileRetroDepthLayerStack] no demo prefab assigned");
+                    return;
+                }
+                if (announce) PitDemoGame.ResetLevels();   // a new game starts at the first level
+                PitDemoGame.NewGame = announce;   // (out of level 1's own torii: LevelPortal)
+                demo = PitDemoGame.Launch(demoPrefab);
+                _levelHold = true;   // (dark till it's laid out: Update)
+                _levelWait = 0;
+                _fadeAt = -1f;
+                SetDark(1f);
+            }
             ClearLayers();
             var shader = layerShader != null ? layerShader : Shader.Find("SpatialEmulator/LayerUnlit");
             for (int i = 0; i < demo.Layers.Count && i < MaxLayers; i++)
             {
                 var layer = demo.Layers[i];
+                if (layer.belowPicture) break;   // (full screen's only, and last: FullScreenTest)
                 var go = GameObject.CreatePrimitive(PrimitiveType.Quad);
                 go.name = $"layer{layer.zOrder}_{layer.name}";
                 Destroy(go.GetComponent<Collider>());
@@ -235,12 +257,15 @@ namespace SpatialEmulator.Mobile
                 var rend = go.GetComponent<Renderer>();
                 rend.material = new Material(shader) { mainTexture = layer.texture };
                 rend.material.SetFloat("_FlipV", 0f);
+                if (layer.premultiplied) rend.material.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.One);
                 rend.enabled = _layersVisible && !hidden;
                 _zOrders[i] = layer.zOrder;
                 _depths[i] = layer.depth;
+                _onTop[i] = layer.onTop;
                 _quads[i] = rend;
                 _builtLayers = i + 1;
             }
+            KeepDrawOrder();
             _frame = transform.parent ? transform.parent.GetComponentInChildren<UI.ScreenFrame>(true) : null;
             PlaceAboveFrame();
             GrowFarLayers();   // not a frame at the quads' default size
@@ -333,6 +358,7 @@ namespace SpatialEmulator.Mobile
         {
             DropRetired();
             PitDemoGame.Stop();
+            TimeCrystalGame.Stop();
             if (_audioSource) _audioSource.Stop();
             LibretroCore.Shutdown();
         }
@@ -388,6 +414,21 @@ namespace SpatialEmulator.Mobile
         }
 
         const int RevealFrames = 3;
+        // A level change's hold (frames at most) and fade in from black (seconds).
+        const int LevelWaitMax = 90;
+        const float LevelFadeIn = 0.4f;
+        static readonly int LayerDarkId = Shader.PropertyToID("_LayerDark");
+        bool _levelHold;
+        int _levelWait;
+        float _fadeAt = -1f;
+
+        /// How dark the demo's picture is (0: as drawn, 1: black) - its layers here, and full screen's (FullScreenTest).
+        public static float Dark { get; private set; }
+        static void SetDark(float dark)
+        {
+            Dark = dark;
+            Shader.SetGlobalFloat(LayerDarkId, dark);
+        }
         int _revealIn;
         readonly List<Renderer> _retiring = new List<Renderer>();
 
@@ -456,27 +497,54 @@ namespace SpatialEmulator.Mobile
             ApplyDevSettings();
             ApplySpacing();
 
-            if (PitDemoGame.IsRunning)
+            if (LayeredDemo.AnyRunning)
             {
-                // The demo's run is over (DeathRespawn): start it again, fresh.
+                // The demo's run is over (ENDLESS KNIGHT's DeathRespawn, THE
+                // TIME CRYSTAL's game over): start it again, fresh.
                 // The old run's last picture stays up until the new one has
                 // drawn and fitted its HUD (a fresh layer texture is blank, and
                 // the HUD is fitted in the demo's first Update).
-                if (s_owner == this && DeathRespawn.RestartRequested)
+                bool pit = PitDemoGame.IsRunning;
+                if (s_owner == this && (pit ? DeathRespawn.RestartRequested : TimeCrystalGame.RestartRequested))
                 {
                     DeathRespawn.RestartRequested = false;
+                    TimeCrystalGame.RestartRequested = false;
                     RetireLayers();
                     PitDemoGame.Stop();
-                    StartDemo(PitDemoGame.GameName, announce: false, hidden: true);
-                    _revealIn = RevealFrames;
+                    TimeCrystalGame.Stop();
+                    StartDemo(pit ? PitDemoGame.GameName : TimeCrystalGame.GameName, announce: false, hidden: true);
+                    if (!pit) _revealIn = RevealFrames;
                     return;
                 }
-                if (_revealIn > 0 && --_revealIn == 0) RevealNewRun();
-                if (s_owner == this) PitDemoGame.Paused = Paused;
+                if (_levelHold)
+                {
+                    // ENDLESS KNIGHT starting (a new game, a death, a new level): dark till it's all in place (or a
+                    // moment at most) - no layers seen settling - then in from black.
+                    if (++_levelWait >= LevelWaitMax || LevelPortal.LaidOut)
+                    {
+                        _levelHold = false;
+                        _levelWait = 0;
+                        _fadeAt = Time.unscaledTime;
+                        RevealNewRun();
+                    }
+                }
+                else if (_revealIn > 0 && --_revealIn == 0) RevealNewRun();
+                if (_fadeAt >= 0f)
+                {
+                    float k = (Time.unscaledTime - _fadeAt) / LevelFadeIn;
+                    SetDark(1f - Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(k)));
+                    if (k >= 1f) _fadeAt = -1f;
+                }
+                if (s_owner == this)
+                {
+                    PitDemoGame.Paused = Paused;
+                    TimeCrystalGame.Paused = Paused;
+                }
                 PlaceAboveFrame();
                 GrowFarLayers();
                 return;
             }
+            if (_fadeAt >= 0f || _levelHold) { _fadeAt = -1f; _levelHold = false; _levelWait = 0; SetDark(0f); }   // (left mid-fade: never dark)
             if (!LibretroCore.IsRunning) return;
 
             // On its own thread (CoreThread), the game runs by itself: the
@@ -641,6 +709,7 @@ namespace SpatialEmulator.Mobile
                 _depths[0] = 0;
                 _builtLayers = 1;
                 _flat = true;
+                KeepDrawOrder();
             }
             long uploading = UI.PerfReadout.Now;
             _textures[0].LoadRawTextureData(pixels);
@@ -695,6 +764,24 @@ namespace SpatialEmulator.Mobile
                 _quads[i] = rend;
             }
             _builtLayers = count;
+            KeepDrawOrder();
+        }
+
+        // The layers are see-through quads, which Unity would otherwise sort
+        // by distance from the camera: up close or from an angle a back
+        // layer's middle can be nearer than a front one's, and it's drawn
+        // over it. Each quad gets its own render queue, back to front, so
+        // they're always drawn in the game's order.
+        void KeepDrawOrder()
+        {
+            for (int i = 0; i < _builtLayers; i++)
+            {
+                if (!_quads[i]) continue;
+                int rank = 0;
+                for (int j = 0; j < _builtLayers; j++)
+                    if (j != i && _quads[j] && (_onTop[j] != _onTop[i] ? _onTop[i] : _depths[j] < _depths[i] || (_depths[j] == _depths[i] && j < i))) rank++;
+                _quads[i].sharedMaterial.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent + 1 + rank;
+            }
         }
 
         // A vertical game's layers come out of its driver as its video chips
@@ -713,7 +800,7 @@ namespace SpatialEmulator.Mobile
         }
 
         /// The game's on a turned monitor: shown tall.
-        public static bool Vertical => !PitDemoGame.IsRunning && Rotation % 180 == 90;
+        public static bool Vertical => LayeredDemo.AnyRunning ? LayeredDemo.Active.Aspect < 1f : Rotation % 180 == 90;
 
         /// The picture's shape as shown, width over height: 4:3 for most
         /// games, 3:4 for a vertical one (ScreenFrame, CrtCabinet and the
@@ -722,7 +809,7 @@ namespace SpatialEmulator.Mobile
         {
             get
             {
-                float aspect = PitDemoGame.IsRunning ? 4f / 3f : LibretroCore.AspectRatio > 0 ? (float)LibretroCore.AspectRatio : 4f / 3f;
+                float aspect = LayeredDemo.AnyRunning ? LayeredDemo.Active.Aspect : LibretroCore.AspectRatio > 0 ? (float)LibretroCore.AspectRatio : 4f / 3f;
                 if (Vertical && aspect > 1f) aspect = 1f / aspect;
                 return aspect;
             }
@@ -731,7 +818,7 @@ namespace SpatialEmulator.Mobile
         void Turn(Transform quad)
         {
             int rotation = Rotation;
-            if (rotation == 0 || PitDemoGame.IsRunning) return;
+            if (rotation == 0 || LayeredDemo.AnyRunning) return;
             quad.localRotation = Quaternion.Euler(0f, 0f, -rotation);   // (+z is anticlockwise, seen from the front)
             if (rotation == 180) return;
             var s = quad.localScale;
@@ -744,11 +831,11 @@ namespace SpatialEmulator.Mobile
         // reports no aspect.
         Vector3 QuadScale(int width, int height)
         {
-            float aspect = PitDemoGame.IsRunning ? 4f / 3f
+            float aspect = LayeredDemo.AnyRunning ? LayeredDemo.Active.Aspect
                 : LibretroCore.AspectRatio > 0 ? (float)LibretroCore.AspectRatio : width / (float)height;
             // A vertical game's shown tall, whichever shape the core reports
             // (its layers' quads are turned by Turn, which swaps the two).
-            if (!PitDemoGame.IsRunning && Rotation % 180 == 90 && aspect > 1f) aspect = 1f / aspect;
+            if (!LayeredDemo.AnyRunning && Rotation % 180 == 90 && aspect > 1f) aspect = 1f / aspect;
             return new Vector3(screenHeight * aspect * pixelAspect, screenHeight, 1);
         }
 

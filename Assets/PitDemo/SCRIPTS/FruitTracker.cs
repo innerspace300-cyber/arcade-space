@@ -1,8 +1,10 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
 // ARcade: ENDLESS KNIGHT's fruit collection, a row of every fruit the chests
-// hold, over the health bar. Each starts as a dark silhouette and lights up
+// hold, over the health bar - past level 1, that level's own set instead
+// (LevelCollection: keys, eggs, potions, which its bosses drop). Each starts as a dark silhouette and lights up
 // (with a little pop) the first time one like it is picked up (ChestGem).
 // The row starts again with each run - until a run collects every one: from
 // then on they all stay lit, deaths and restarts included (PlayerPrefs) -
@@ -21,7 +23,9 @@ public class FruitTracker : MonoBehaviour
     public AudioClip winSound;
     public int completeBonus = 5000;
 
-    const string CompleteKey = "EndlessKnight.FruitComplete";
+    const string CompleteKey = "EndlessKnight.FruitComplete";   // (level 1's; later levels' + their number)
+    /// The running level's row.
+    public static FruitTracker Instance { get; private set; }
 
     public static event System.Action<Sprite> Collected;
     /// ARcade: this run has picked up every fruit (true: the first time ever,
@@ -31,15 +35,46 @@ public class FruitTracker : MonoBehaviour
     public static void Collect(Sprite sprite) => Collected?.Invoke(sprite);
 
     bool[] _have;
+    string _key;
+
+    /// The first `count` of the row she hasn't got yet this run (what a boss drops next: RoadBoss).
+    public List<int> Missing(int count)
+    {
+        var missing = new List<int>();
+        for (int i = 0; i < _have.Length && missing.Count < count; i++) if (!_have[i]) missing.Add(i);
+        return missing;
+    }
     float[] _popAt;
+    int _wide = -1;
+    const float WideSize = 1.25f;
     bool _complete;
 
     void Awake()
     {
+        Instance = this;
+        // Past level 1: that level's own set (LevelCollection) in the row's first slots, the rest hidden.
+        int level = SpatialEmulator.Demo.PitDemoGame.Level;
+        var set = LevelCollection.For(level);
+        if (set != null)
+        {
+            fruit = set.icons;
+            for (int i = 0; i < slots.Length; i++)
+            {
+                if (!slots[i]) continue;
+                bool used = i < fruit.Length;
+                slots[i].gameObject.SetActive(used);
+                if (used) { slots[i].sprite = fruit[i]; slots[i].preserveAspect = true; }
+                // (a wide item among tall ones - level 2's jewelled last key - drawn bigger, its top clear)
+                if (used && fruit[i] && fruit[i].rect.width > fruit[i].rect.height * 0.6f && set.icons.Length > 1 && fruit[0].rect.width < fruit[0].rect.height * 0.6f) _wide = i;
+            }
+            slots = System.Array.FindAll(slots, s => s && s.gameObject.activeSelf);
+            _key = CompleteKey + level;
+        }
+        else _key = CompleteKey;
         _have = new bool[slots.Length];
         _popAt = new float[slots.Length];
         for (int i = 0; i < _popAt.Length; i++) _popAt[i] = -10f;
-        _complete = PlayerPrefs.GetInt(CompleteKey, 0) == 1;
+        _complete = PlayerPrefs.GetInt(_key, 0) == 1;
         Refresh();
     }
 
@@ -57,10 +92,10 @@ public class FruitTracker : MonoBehaviour
         {
             // Every fruit: they stay lit for good, and all pop together.
             _complete = true;
-            PlayerPrefs.SetInt(CompleteKey, 1);
+            PlayerPrefs.SetInt(_key, 1);
             PlayerPrefs.Save();
             for (int k = 0; k < _popAt.Length; k++) _popAt[k] = Time.time;
-            FruitRain.Play(fruit, winSound, completeBonus);   // it rains fruit
+            FruitRain.Play(fruit, winSound, completeBonus, SpatialEmulator.Demo.PitDemoGame.Level == 3 ? 0.6f : 1f);   // it rains fruit (level 3's big eggs smaller)
             SpatialEmulator.Haptics.Play(SpatialEmulator.Haptics.Kind.Success);
             Refresh();
             AllCollected?.Invoke(true);
@@ -83,7 +118,7 @@ public class FruitTracker : MonoBehaviour
             if (!slots[i]) continue;
             float t = (Time.time - _popAt[i]) / popTime;
             float s = t >= 0f && t < 1f ? Mathf.Lerp(popScale, 1f, t) : 1f;
-            slots[i].rectTransform.localScale = Vector3.one * s;
+            slots[i].rectTransform.localScale = Vector3.one * (s * (i == _wide ? WideSize : 1f));
         }
     }
 }

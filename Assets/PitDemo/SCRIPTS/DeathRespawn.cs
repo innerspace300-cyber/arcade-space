@@ -38,6 +38,8 @@ public class DeathRespawn : MonoBehaviour
     public static bool RestartRequested;
     // The next run starts with the player arriving in a strike (only after a death).
     static bool s_arriveByLightning;
+    /// The next run starts with her coming down in the witch's strike (the dark crystal's ending, LevelPortal, too).
+    public static void ArriveByLightning() => s_arriveByLightning = true;
 
     PlayerScriptARIANAClips _player;
     SpriteRenderer _playerSprite;
@@ -148,8 +150,9 @@ public class DeathRespawn : MonoBehaviour
         witch.transform.position = new Vector3(x, _player.transform.position.y, z);
         witch.transform.localScale = witchScale;
         var sr = witch.AddComponent<SpriteRenderer>();
-        sr.sortingLayerName = witchSortingLayer;
-        sr.sortingOrder = witchSortingOrder;
+        // (over everything on the road - the bosses and their attacks too - just under her own strike)
+        sr.sortingLayerName = "Default";
+        sr.sortingOrder = 499;
         sr.flipX = true;
         sr.enabled = false;
         OnTop(sr);
@@ -157,6 +160,7 @@ public class DeathRespawn : MonoBehaviour
         // Her frames sit higher in their canvas than the player's: feet on the road.
         witch.transform.position += Vector3.up * (SpikeTrap.GroundY - sr.bounds.min.y);
         SpriteShadow.Cast(sr);   // ARcade: her shadow on the road (shown once she is)
+        witch.AddComponent<WitchMagic>();   // (her magic, as the campfire witch's)
         return sr;
     }
 

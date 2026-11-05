@@ -29,6 +29,13 @@ namespace SpatialEmulator.UI
             set
             {
                 if (value == Enabled) return;
+                // The AR side menus (FULL tapped from them) fold away as the view changes - they
+                // can't be seen in full screen - and let the game go (MenuPause: on once every menu's shut).
+                if (SaveStatePanel.SideMenusOpen)
+                {
+                    SaveStatePanel.SideMenusOpen = false;
+                    MenuPause.Close(MenuPause.Menu.Side);
+                }
                 if (value)
                 {
                     if (!s_instance)
@@ -52,6 +59,9 @@ namespace SpatialEmulator.UI
         }
 
         Canvas _canvas;
+        const int OnTopOrder = 15;
+        readonly List<Canvas> _onTop = new List<Canvas>();
+        RawImage _below;
         RawImage _image;
         ARSession _session;
         ARPlaneManager _planes;
@@ -64,10 +74,25 @@ namespace SpatialEmulator.UI
         RectTransform _demoPicture;
         RawImage _demoBar;
         readonly List<RawImage> _demoLayers = new List<RawImage>();
-        Demo.PitDemoGame _demo;
+        Demo.LayeredDemo _demo;
         GameObject _arKey;
         int _shown = -1;
         int _cullingMask;
+        // The cabinet's own panels (MENU with GAMES, SAVE, ...) are canvases out in the room:
+        // hidden in full screen but still there to tap - switched off while it's on.
+        readonly System.Collections.Generic.List<UnityEngine.EventSystems.BaseRaycaster> _quieted = new System.Collections.Generic.List<UnityEngine.EventSystems.BaseRaycaster>();
+
+        void QuietTheRoom()
+        {
+            foreach (var r in FindObjectsByType<UnityEngine.EventSystems.BaseRaycaster>(FindObjectsInactive.Include))
+            {
+                if (!r || !r.enabled || r.transform.IsChildOf(transform)) continue;
+                var canvas = r.GetComponent<Canvas>();
+                if (!canvas || canvas.renderMode != RenderMode.WorldSpace) continue;
+                r.enabled = false;
+                _quieted.Add(r);
+            }
+        }
         CameraClearFlags _clear;
         Color _color;
 
@@ -190,6 +215,7 @@ namespace SpatialEmulator.UI
                 _camera.clearFlags = CameraClearFlags.SolidColor;
                 _camera.backgroundColor = Color.black;
             }
+            QuietTheRoom();
         }
 
         void OnDisable()
@@ -207,20 +233,42 @@ namespace SpatialEmulator.UI
             if (_background) _background.enabled = true;
             if (_planes) _planes.enabled = _planesWere;
             if (_session) _session.enabled = true;
+            foreach (var r in _quieted) if (r) r.enabled = true;
+            _quieted.Clear();
             // Tracking and the plane search start over (CabinetHints).
             CabinetHints.RestartScanning();
         }
 
         void LateUpdate()
         {
-            if (_arKey) _arKey.SetActive(!GamePicker.IsOpen && !SettingsScreen.IsOpen && !MenuDropdown.Exists);
-            bool demo = Demo.PitDemoGame.IsRunning && Demo.PitDemoGame.Running;
+            if (Time.frameCount % 30 == 0) QuietTheRoom();   // (panels made since)
+            // On a TV (TvOutput) the picture's drawn there, by its camera; the phone keeps the controls and menus.
+            var tv = TvOutput.Showing ? TvOutput.Camera : null;
+            if (tv)
+            {
+                if (_canvas.renderMode != RenderMode.ScreenSpaceCamera || _canvas.worldCamera != tv)
+                {
+                    _canvas.renderMode = RenderMode.ScreenSpaceCamera;
+                    _canvas.worldCamera = tv;
+                    _canvas.planeDistance = 1f;
+                }
+                OnLayer(transform, TvOutput.Layer);   // (each frame: the demo's layers are made as it changes)
+            }
+            else if (_canvas.renderMode != RenderMode.ScreenSpaceOverlay)
+            {
+                TvOutput.BackToOverlay(_canvas);   // (re-sorted: else it came back over the keys and menus)
+                OnLayer(transform, 0);
+            }
+            if (_arKey) _arKey.SetActive(!GamePicker.IsOpen && !SettingsScreen.IsOpen && !MenuDropdown.Exists && !TvOutput.Showing);
+            bool demo = Demo.LayeredDemo.AnyRunning;
+            if (demo) RomAtTop = false;
             _demoPicture.gameObject.SetActive(demo);
             _demoBar.gameObject.SetActive(demo && _demoBar.texture);
+            if (_below) _below.gameObject.SetActive(demo);
             if (demo)
             {
                 _image.enabled = false;
-                ShowDemo(Demo.PitDemoGame.Running);
+                ShowDemo(Demo.LayeredDemo.Active);
                 return;
             }
             var pixels = LibretroCore.FlatPixels;
@@ -239,7 +287,7 @@ namespace SpatialEmulator.UI
                 }
                 _texture.LoadRawTextureData(pixels);
                 _texture.Apply(false, false);
-                _image.texture = _texture;
+                _image.texture = TvOutput.Showing ? Sharp(_texture) : _texture;
             }
             // Fit inside the screen at the game's own shape (its pixels
             // aren't always square: LibretroCore.AspectRatio), a vertical
@@ -256,33 +304,104 @@ namespace SpatialEmulator.UI
             var rect = _image.rectTransform;
             rect.sizeDelta = sideways ? new Vector2(size.y, size.x) : size;
             rect.localEulerAngles = new Vector3(0, 0, -turn);
+            // A heavy or vertical game up under the three bars and the gear (its tall picture
+            // clear of the buttons: RomKeysUnderPicture), not centred - on the phone, not the TV.
+            var game = GameCatalog.Find(GameSelection.Current);
+            RomAtTop = !TvOutput.Showing && game != null && (game.FullScreenOnly || game.Vertical);
+            float y = 0f;
+            if (RomAtTop) y = Mathf.Max(screen.y * 0.5f - TopInset(screen) - size.y * 0.5f, -screen.y * 0.5f + size.y * 0.5f);
+            rect.anchoredPosition = new Vector2(0f, y);
+            PictureRect = new Rect(new Vector2(-size.x * 0.5f, y - size.y * 0.5f) + screen * 0.5f, size);
         }
 
-        void ShowDemo(Demo.PitDemoGame game)
+        /// The running arcade game's picture is up at the top (a heavy or vertical one, on the phone): PictureRect.
+        public static bool RomAtTop { get; private set; }
+
+        // On the TV: the frame grown by whole pixels (each one the same size), then smoothed down to fit -
+        // sharp pixels, not the uneven ones a straight blow-up to 1080 lines gives.
+        RenderTexture _sharp;
+        Texture Sharp(Texture2D frame)
+        {
+            float lines = Mathf.Max(1, ((RectTransform)transform).rect.height);
+            int k = Mathf.Clamp(Mathf.CeilToInt(lines / Mathf.Min(frame.width, frame.height)), 1, 8);
+            if (!_sharp || _sharp.width != frame.width * k || _sharp.height != frame.height * k)
+            {
+                if (_sharp) _sharp.Release();
+                _sharp = new RenderTexture(frame.width * k, frame.height * k, 0) { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+            }
+            Graphics.Blit(frame, _sharp);   // (point-filtered: whole pixels)
+            return _sharp;
+        }
+
+        static Material s_premultiplied;
+        static Material PremultipliedMaterial
+        {
+            get
+            {
+                if (s_premultiplied) return s_premultiplied;
+                var stack = MobileRetroDepthLayerStack.Active;
+                var shader = stack && stack.layerShader ? stack.layerShader : Shader.Find("SpatialEmulator/LayerUnlit");
+                if (!shader) return null;
+                s_premultiplied = new Material(shader) { name = "Demo Layer (premultiplied)" };
+                s_premultiplied.SetFloat("_FlipV", 0f);
+                s_premultiplied.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.One);
+                return s_premultiplied;
+            }
+        }
+
+        void ShowDemo(Demo.LayeredDemo game)
         {
             if (game != _demo || _demoLayers.Count + (_demoBar.texture ? 1 : 0) != game.Layers.Count)
             {
                 _demo = game;
                 foreach (var old in _demoLayers) Destroy(old.gameObject);
+                _onTop.Clear();
                 _demoLayers.Clear();
                 _demoBar.texture = null;
-                var order = new List<Demo.PitDemoGame.Layer>(game.Layers);
-                order.Sort((a, b) => a.depth.CompareTo(b.depth));
+                var order = new List<Demo.LayeredDemo.Layer>(game.Layers);
+                order.Sort((a, b) => a.onTop != b.onTop ? a.onTop.CompareTo(b.onTop) : a.depth != b.depth ? a.depth.CompareTo(b.depth) : a.zOrder.CompareTo(b.zOrder));   // (an onTop layer last: over the rest)
                 foreach (var layer in order)
                 {
                     if (layer.aboveFrame) { _demoBar.texture = layer.texture; continue; }
                     var image = new GameObject(layer.name, typeof(RectTransform), typeof(RawImage)).GetComponent<RawImage>();
-                    image.transform.SetParent(_demoPicture, false);
+                    // (Under the picture: outside its mask, placed with it below.)
+                    image.transform.SetParent(layer.belowPicture ? transform : _demoPicture, false);
+                    if (layer.belowPicture) _below = image;
                     image.raycastTarget = false;
                     image.texture = layer.texture;
+                    // (Soft pixels drawn premultiplied: added like light, as on the layer quads.)
+                    if (layer.premultiplied) image.material = PremultipliedMaterial;
+                    if (layer.onTop)
+                    {
+                        // (THE TIME CRYSTAL's player ship: over the on-screen buttons and their labels
+                        // (ArcadeControls, order 10) too, under the game picker (20) and windows (35).)
+                        var over = image.gameObject.AddComponent<Canvas>();
+                        over.overrideSorting = true;
+                        over.sortingOrder = OnTopOrder + _onTop.Count;   // (each over the one before)
+                        _onTop.Add(over);
+                    }
                     _demoLayers.Add(image);
                 }
+            }
+
+            // (Dark while a run lays itself out, fading in: MobileRetroDepthLayerStack.Dark.)
+            var lit = Color.Lerp(Color.white, Color.black, MobileRetroDepthLayerStack.Dark);
+            foreach (var image in _demoLayers) if (image && image.color != lit) image.color = lit;
+            if (_demoBar.color != lit) _demoBar.color = lit;
+
+            // (Back with the rest of the picture, under the controls' canvas, while a menu's open on it.)
+            _onTop.RemoveAll(c => !c);
+            if (_onTop.Count > 0)
+            {
+                bool menus = MenuPause.Held || GamePicker.IsOpen || SettingsScreen.IsOpen || LeaderboardWindow.IsOpen || SavesWindow.IsOpen;   // (Held: the three-bar menu open - it always exists in full screen)
+                foreach (var c in _onTop) if (c.overrideSorting == menus) c.overrideSorting = !menus;
             }
 
             // The picture as wide as fits, the bar above it, both centred.
             var stack = MobileRetroDepthLayerStack.Active;
             var screen = ((RectTransform)transform).rect.size;
-            const float aspect = 4f / 3f, gap = 0.02f;
+            float aspect = game.Aspect;
+            const float gap = 0.02f;
             float barAspect = _demoBar.texture ? _demoBar.texture.width / (float)_demoBar.texture.height : 0f;
             float barWidth = stack ? stack.aboveFrameWidth : 1f;
             // height per unit of picture width: the picture, the gap, the bar
@@ -292,6 +411,20 @@ namespace SpatialEmulator.UI
             float total = width * tall;
             _demoPicture.sizeDelta = new Vector2(width, pictureHeight);
             _demoPicture.anchoredPosition = new Vector2(0, -total * 0.5f + pictureHeight * 0.5f);
+            if (game.FullScreenAtTop && barAspect <= 0 && !TvOutput.Showing)
+            {
+                // Up under the three bars and the gear (their row, below the safe area's top), not centred.
+                float top = screen.y * 0.5f - TopInset(screen);
+                float y = Mathf.Max(top - pictureHeight * 0.5f, -screen.y * 0.5f + pictureHeight * 0.5f);
+                _demoPicture.anchoredPosition = new Vector2(0, y);
+            }
+            if (_below)
+            {
+                _below.rectTransform.sizeDelta = new Vector2(width, pictureHeight);
+                _below.rectTransform.anchoredPosition = _demoPicture.anchoredPosition - new Vector2(0, game.BelowPictureDrop * pictureHeight);
+            }
+            // (In the TV's pixels while it's there: the spell wheel over the knight goes there too.)
+            PictureRect = new Rect(_demoPicture.anchoredPosition - new Vector2(width, pictureHeight) * 0.5f + screen * 0.5f, new Vector2(width, pictureHeight));
             if (barAspect > 0)
             {
                 var bar = _demoBar.rectTransform;
@@ -308,6 +441,23 @@ namespace SpatialEmulator.UI
                     ? new Vector2(pictureHeight * layerAspect, pictureHeight)
                     : new Vector2(width, width / layerAspect);
             }
+        }
+
+        /// The demo's picture in full screen, in screen pixels (0, 0 bottom left) - the TV's, on the TV (TvOutput).
+        public static Rect PictureRect { get; private set; }
+
+        // From the screen's top to the picture's: the safe area's top, then the menu bar's row
+        // (the three bars and the gear, about 73 points of a 430-point-wide phone).
+        static float TopInset(Vector2 screen)
+        {
+            float k = screen.x / Mathf.Max(1f, Screen.width);   // (this canvas's units per screen pixel)
+            return (Screen.height - Screen.safeArea.yMax) * k + screen.x * 0.17f;
+        }
+
+        static void OnLayer(Transform t, int layer)
+        {
+            if (t.gameObject.layer != layer) t.gameObject.layer = layer;
+            for (int i = 0; i < t.childCount; i++) OnLayer(t.GetChild(i), layer);
         }
 
         static void Stretch(RectTransform rect)

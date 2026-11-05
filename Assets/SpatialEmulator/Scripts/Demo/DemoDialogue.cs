@@ -3,11 +3,13 @@
 //    to the endless loop, the knight answers, then HOW TO PLAY shows the
 //    joystick and the A, B and C buttons (mini copies of the controls' own
 //    art) with what each does;
+//  - each later level's welcome (first arrival only, PlayerPrefs): the witch
+//    on its bosses and what to collect for its portal, the knight answering;
 //  - HOW TO PLAY on its own (the side panel's CONTROLS button);
 //  - the RESTART warning: the witch asks before a restart wipes the hi score
 //    and progress (C - green - yes, A - red - no);
-//  - the PORTAL offer, once a run has every fruit: the witch's congratulations,
-//    then open the portal to the next loop, or keep going (YES / NO).
+//  - the PORTAL offer, once a run has every fruit: the witch's well done and
+//    her portal to the next level (YES on A, the only answer).
 // The opening and HOW TO PLAY leave the game running (the knight just
 // doesn't take the controls); the RESTART warning freezes it. A press of A, B or C (or a
 // controller's buttons) moves it on - finishing the line being typed first -
@@ -34,6 +36,8 @@ namespace SpatialEmulator.Demo
     public class DemoDialogue : MonoBehaviour
     {
         public const string SeenKey = "EndlessKnight.IntroSeen";
+        /// + the level's number: its welcome seen (levels 2-4).
+        public const string LevelSeenKey = "EndlessKnight.LevelIntroSeen";
 
         // Restart and Portal are the witch asking, in the large box, YES or NO.
         enum Speaker { Witch, Knight, HowToPlay, Restart, Portal }
@@ -49,7 +53,32 @@ namespace SpatialEmulator.Demo
         {
             new Slide(Speaker.Witch, "WELCOME TO THE ENDLESS LOOP.\nTRY TO ESCAPE IF YOU CAN."),
             new Slide(Speaker.Knight, "AN ENDLESS LOOP? THEN I'LL CUT MY WAY OUT."),
+            new Slide(Speaker.Witch, "WATCH OUT FOR THE GLUTTON. FIND EVERY FRUIT AND I'LL OPEN A PORTAL."),
             new Slide(Speaker.HowToPlay, null),
+        };
+
+        // Each later level's welcome: its bosses, and what to collect for its portal (LevelCollection).
+        static Slide[] LevelIntro(int level) => level switch
+        {
+            2 => new[]
+            {
+                new Slide(Speaker.Witch, "NECRO MAGES RAISE THE DEAD HERE, AND ROCKY RISES FROM THE ROCK."),
+                new Slide(Speaker.Witch, "EACH BOSS YOU BEAT DROPS A GOLD KEY. BRING ME ALL 15."),
+                new Slide(Speaker.Knight, "15 KEYS. CONSIDER IT DONE."),
+            },
+            3 => new[]
+            {
+                new Slide(Speaker.Witch, "BIG SWAMP AND THE GAZER LURK HERE. WATCH FOR ITS BEAM."),
+                new Slide(Speaker.Witch, "EACH BOSS DROPS AN EGG. GATHER ALL 14 FOR MY PORTAL."),
+                new Slide(Speaker.Knight, "TOADS AND EGGS. LOVELY."),
+            },
+            4 => new[]
+            {
+                new Slide(Speaker.Witch, "VIKINGS GUARD THIS ROAD, AND THE ELDER DRAGON RULES IT."),
+                new Slide(Speaker.Witch, "EACH BOSS DROPS A POTION. COLLECT ALL 15... IF YOU CAN."),
+                new Slide(Speaker.Knight, "THEN THIS IS WHERE THE LOOP ENDS."),
+            },
+            _ => null,
         };
         static readonly Slide[] HowToOnly = { new Slide(Speaker.HowToPlay, null) };
         static readonly Slide[] RestartPrompt =
@@ -58,10 +87,13 @@ namespace SpatialEmulator.Demo
         };
 
         // Every fruit collected: the witch offers the portal to the next loop (LevelPortal).
-        static readonly Slide[] PortalPrompt =
+        // One question, one answer: YES on the red A, beside its last line (PortalChoices).
+        // From the last level (its last potion the third dragon's) it's back to the start of the loop.
+        static Slide[] PortalPrompt(int nextLevel) => new[]
         {
-            new Slide(Speaker.Witch, "CONGRATS! YOU COLLECTED EVERY FRUIT.\nNOW I CAN OPEN A PORTAL TO THE NEXT LOOP!"),
-            new Slide(Speaker.Portal, "OPEN THE PORTAL? OR STAY IN THIS LOOP AND KEEP GOING FOR A <nobr>HI SCORE?</nobr>"),
+            nextLevel == 1
+                ? new Slide(Speaker.Portal, "THE DRAGON FALLS! BUT THE LOOP NEVER ENDS.\nBACK TO THE START, KNIGHT?")
+                : new Slide(Speaker.Portal, "WELL DONE, KNIGHT!\nREADY FOR LEVEL " + nextLevel + "?\nI'LL OPEN A PORTAL."),
         };
 
         // The rows of the HOW TO PLAY box: the control, its name (gold), what it does.
@@ -85,6 +117,16 @@ namespace SpatialEmulator.Demo
         public static bool Freezing => Showing && Instance._slides == RestartPrompt;
         /// The RESTART warning is up.
         public static bool AskingRestart => Showing && Instance._slides == RestartPrompt;
+        /// What C and A answer in what's up now - for their hints over the buttons (SpellWheel); null: nothing.
+        public static string CHint => Showing ? Instance.HintFor(true) : null;
+        public static string AHint => Showing ? Instance.HintFor(false) : null;
+
+        string HintFor(bool c)
+        {
+            if (!Asking) return c ? "NEXT" : null;   // (a spoken line: C goes on)
+            if (_slides[_slide].speaker == Speaker.Portal) return c ? null : "YES";   // (YES on the red A - the only answer)
+            return c ? "YES" : "NO";   // (the RESTART warning)
+        }
 
         // A box for spoken lines: its portrait, the line, the arrow and PRESS C.
         class TalkBox
@@ -100,7 +142,10 @@ namespace SpatialEmulator.Demo
         readonly System.Collections.Generic.List<Graphic> _lines = new System.Collections.Generic.List<Graphic>();
         readonly System.Collections.Generic.List<Graphic> _accents = new System.Collections.Generic.List<Graphic>();
         TalkBox _short, _large, _talk;   // _talk: the one showing
-        RectTransform _howToPointer, _choices;
+        TextAlignmentOptions? _talkAlign;   // (the large box's own, for lines other than the portal offer)
+        Vector4 _talkMargin;
+        const float PortalTopPad = 10f;
+        RectTransform _howToPointer, _choices, _portalYes;
         TMP_Text _howToHint;
         int _howToPointerHome;
         Sprite _witch, _knight, _witchFace, _knightFace;
@@ -109,7 +154,7 @@ namespace SpatialEmulator.Demo
         TMP_Text _title;
         RectTransform[] _rules;
         Slide[] _slides;
-        bool _markSeen;
+        string _seenKey;   // (set when it's been through: null - not one shown once)
         System.Action _onYes, _onNo;
         int _slide = -1;
         float _shownAt;
@@ -120,6 +165,30 @@ namespace SpatialEmulator.Demo
         {
             if (PlayerPrefs.GetInt(SeenKey, 0) == 1) return;
             Open(Intro, true, null);
+        }
+
+        /// Level `level`'s welcome (2-4), the first time she gets there - a moment after she arrives.
+        public static void ShowLevelIntro(int level)
+        {
+            var slides = LevelIntro(level);
+            var game = PitDemoGame.Running;
+            if (slides == null || !game || PlayerPrefs.GetInt(LevelSeenKey + level, 0) == 1) return;
+            game.StartCoroutine(LevelIntroSoon(game, slides, LevelSeenKey + level));
+        }
+
+        static System.Collections.IEnumerator LevelIntroSoon(PitDemoGame game, Slide[] slides, string seenKey)
+        {
+            yield return new WaitForSecondsRealtime(1.2f);   // (out of the portal first)
+            if (PitDemoGame.Running != game || Showing) yield break;
+            Open(slides, false, null);
+            if (Instance) Instance._seenKey = seenKey;
+        }
+
+        /// The witch saying `lines`, one box each (the dark crystal's ending: LevelPortal).
+        public static void WitchSays(params string[] lines)
+        {
+            if (Instance) Destroy(Instance.gameObject);
+            Open(System.Array.ConvertAll(lines, l => new Slide(Speaker.Witch, l)), false, null);
         }
 
         /// HOW TO PLAY, any time (not over another box).
@@ -138,11 +207,11 @@ namespace SpatialEmulator.Demo
             Open(RestartPrompt, false, onYes);
         }
 
-        /// The portal offer (every fruit collected): `onYes` opens it, `onNo` keeps the run going.
-        public static void AskPortal(System.Action onYes, System.Action onNo)
+        /// The portal offer (every fruit collected) to level `nextLevel`: `onYes` opens it - the only answer.
+        public static void AskPortal(int nextLevel, System.Action onYes)
         {
             if (Instance) Destroy(Instance.gameObject);
-            Open(PortalPrompt, false, onYes, onNo);
+            Open(PortalPrompt(nextLevel), false, onYes);
         }
 
         static void Open(Slide[] slides, bool markSeen, System.Action onYes, System.Action onNo = null)
@@ -156,7 +225,7 @@ namespace SpatialEmulator.Demo
             go.transform.SetParent(game.transform, false);
             var dialogue = go.AddComponent<DemoDialogue>();
             dialogue._slides = slides;
-            dialogue._markSeen = markSeen;
+            dialogue._seenKey = markSeen ? SeenKey : null;
             dialogue._onYes = onYes;
             dialogue._onNo = onNo;
             dialogue.Build(cam, hud && hud.healthText ? hud.healthText.font : null);
@@ -192,6 +261,7 @@ namespace SpatialEmulator.Demo
             _short = BuildTalk("Talk", 228, 84, 64);
             _large = BuildTalk("Talk Large", 132, 144, 104);
             BuildChoices();
+            BuildPortalChoices();
             BuildHowTo();
             Tint();
             UI.CabinetStyles.Changed += Tint;
@@ -245,23 +315,23 @@ namespace SpatialEmulator.Demo
             return talk;
         }
 
-        // The RESTART warning's YES (C, green) and NO (A, red), under its line:
+        // The RESTART warning's NO (A, red) and then YES (C, green), under its line - in the buttons' own order, A first:
         // each mini button with its pixel letter under it, as on the controls
         // (the buttons may all be one colour), and the answer beside it in
         // HOW TO PLAY's gold.
         void BuildChoices()
         {
             _choices = Box("Choices", _large.root, 140, 26, 400 - 140 - 14, 48);
-            Icon("Yes Button", _choices, _green, 18, 30);
-            Icon("Yes Letter", _choices, _letterC, 18, 6);
-            var yes = Text("Yes", _choices, 42, 22, 80, 16, TextAlignmentOptions.MidlineLeft);
-            yes.text = "YES";
-            yes.color = Gold;
-            Icon("No Button", _choices, _red, 130, 30);
-            Icon("No Letter", _choices, _letterA, 130, 6);
-            var no = Text("No", _choices, 154, 22, 80, 16, TextAlignmentOptions.MidlineLeft);
+            Icon("No Button", _choices, _red, 18, 30);
+            Icon("No Letter", _choices, _letterA, 18, 6);
+            var no = Text("No", _choices, 42, 22, 80, 16, TextAlignmentOptions.MidlineLeft);
             no.text = "NO";
             no.color = Gold;
+            Icon("Yes Button", _choices, _green, 130, 30);
+            Icon("Yes Letter", _choices, _letterC, 130, 6);
+            var yes = Text("Yes", _choices, 154, 22, 80, 16, TextAlignmentOptions.MidlineLeft);
+            yes.text = "YES";
+            yes.color = Gold;
 
             // The pair centred between the portrait's frame and the box's
             // right line (the large box: 144 high, a 104 px face in a frame
@@ -270,10 +340,45 @@ namespace SpatialEmulator.Demo
             int frameSize = face + 4, margin = (boxH - frameSize) / 2;
             float portraitRight = margin + 2 + frameSize;
             float middle = (portraitRight + boxW - line) * 0.5f;
-            float left = 18f - (_green ? _green.rect.width * 0.5f : 12f);
-            float right = 154f + no.GetPreferredValues("NO").x;
+            float left = 18f - (_red ? _red.rect.width * 0.5f : 12f);
+            float right = 154f + yes.GetPreferredValues("YES").x;
             var at = _choices.anchoredPosition;
             _choices.anchoredPosition = new Vector2(middle - (left + right) * 0.5f + _choices.sizeDelta.x * 0.5f, at.y);
+        }
+
+        // The portal offer's answer: YES on the red A, centred under its line - the
+        // mini button with its pixel letter under it and the answer in gold
+        // (placed once the line's typed out: PlacePortalChoices).
+        void BuildPortalChoices()
+        {
+            _portalYes = AnswerTag("Portal Yes", _large.text.rectTransform, _red, _letterA, "YES");
+        }
+
+        RectTransform AnswerTag(string name, RectTransform parent, Sprite button, Sprite letter, string answer)
+        {
+            var group = Box(name, parent, 0, 0, 0, 0);
+            Icon(name + " Button", group, button, 12, 6);
+            Icon(name + " Letter", group, letter, 12, -16);
+            var label = Text(name + " Answer", group, 35, -17, 110, 40, TextAlignmentOptions.MidlineLeft);
+            label.text = answer;
+            label.color = Gold;
+            label.lineSpacing = 4f;
+            group.gameObject.SetActive(false);
+            return group;
+        }
+
+        // Under the question, centred: the red A and YES as one.
+        void PlacePortalChoices()
+        {
+            var text = _large.text;
+            text.ForceMeshUpdate();
+            var info = text.textInfo;
+            if (info.lineCount == 0) return;
+            var last = info.lineInfo[info.lineCount - 1];
+            var answer = _portalYes.Find("Portal Yes Answer")?.GetComponent<TMP_Text>();
+            float width = 35f + (answer ? answer.preferredWidth : 24f);   // (the button's 24, a gap, then YES)
+            float middle = text.rectTransform.rect.center.x;
+            _portalYes.localPosition = new Vector3(Mathf.Round(middle - width * 0.5f), Mathf.Round(last.descender - 33f), 0f);
         }
 
         // HOW TO PLAY: the joystick and the three buttons, each with its name and what it does.
@@ -294,11 +399,13 @@ namespace SpatialEmulator.Demo
             {
                 int top = firstTop - i * rowHeight, mid = top - rowHeight / 2;
                 if (i == 0) Joystick(_howTo, iconX, mid);
-                else Icon("Button", _howTo, i == 1 ? _red : i == 2 ? _yellow : _green, iconX, mid);
+                else Icon("Button " + i, _howTo, i == 1 ? _red : i == 2 ? _yellow : _green, iconX, mid);
                 var line = Text("Row " + i, _howTo, 88, top - rowHeight, w - 88 - 12, rowHeight, TextAlignmentOptions.MidlineLeft);
                 line.lineSpacing = 4f;
                 line.text = $"<color=#{ColorUtility.ToHtmlStringRGB(Gold)}>{HowTo[i].name}</color>\n{HowTo[i].does}";
+                _howToRows[i] = line;
             }
+            _kishiLabels = null;   // (the rows filled in as they're shown: KishiLabels)
             _howToPointerHome = 10;
             _howToPointer = Pointer(_howTo, w - 28, _howToPointerHome);
             _howToHint = Hint(_howTo, w - 28, 8);
@@ -453,6 +560,14 @@ namespace SpatialEmulator.Demo
                 _talk.portrait.sprite = large ? (knight ? _knight : _witch) : (knight ? _knightFace : _witchFace);
                 _talk.portrait.enabled = _talk.portrait.sprite;
                 _talk.text.text = s.text;
+                // The portal offer centred in its box (its YES centred under it: PlacePortalChoices).
+                if (_talkAlign == null) { _talkAlign = _large.text.alignment; _talkMargin = _large.text.margin; }
+                if (large)
+                {
+                    bool portal = s.speaker == Speaker.Portal;
+                    _large.text.alignment = portal ? TextAlignmentOptions.Top : _talkAlign.Value;
+                    _large.text.margin = _talkMargin + (portal ? new Vector4(0f, PortalTopPad, 0f, 0f) : Vector4.zero);   // (a little lower)
+                }
                 _talk.text.maxVisibleCharacters = 0;
                 _talk.text.ForceMeshUpdate();   // (parsed now, for Typing)
             }
@@ -499,9 +614,9 @@ namespace SpatialEmulator.Demo
         void Close()
         {
             _slide = -1;
-            if (_markSeen)
+            if (_seenKey != null)
             {
-                PlayerPrefs.SetInt(SeenKey, 1);
+                PlayerPrefs.SetInt(_seenKey, 1);
                 PlayerPrefs.Save();
             }
             if (!PitDemoGame.IsPaused && _slides == RestartPrompt) Time.timeScale = 1f;
@@ -526,8 +641,10 @@ namespace SpatialEmulator.Demo
                 pressA |= keys.escapeKey.wasPressedThisFrame;
             }
 
-            // ARcade's own menus over the game: they have the controls.
-            if (PitDemoGame.IsPaused) { _shownAt = Mathf.Max(_shownAt, Time.unscaledTime - PressGuard); return; }
+            // ARcade's own menus over the game: they have the controls - all
+            // but the RESTART warning, asked from that menu: it types and
+            // takes its answer with everything else frozen behind it.
+            if (PitDemoGame.IsPaused && _slides != RestartPrompt) { _shownAt = Mathf.Max(_shownAt, Time.unscaledTime - PressGuard); return; }
             if (_slides == RestartPrompt && Time.timeScale != 0f) Time.timeScale = 0f;
 
             float t = Time.unscaledTime - _shownAt;
@@ -544,15 +661,16 @@ namespace SpatialEmulator.Demo
             if (t < PressGuard) return;
             if (Asking && ready)
             {
-                // YES on the green C, NO on the red A.
-                if (pressC) Answer(true);
-                else if (pressA) Answer(false);
+                // The portal: YES on the red A, its only answer. The warning: YES on the green C, NO on the red A.
+                bool portal = _slides[_slide].speaker == Speaker.Portal;
+                if (portal ? pressA : pressC) Answer(true);
+                else if (!portal && pressA) Answer(false);
                 return;
             }
             if (pressA || pressB || pressC) Advance();
         }
 
-        static bool Held(RetroPadButton button) => ArcadeInput.IsPressed((uint)button);
+        static bool Held(RetroPadButton button) => ArcadeInput.IsPressedRaw((uint)button);   // (answers over a paused game: the RESTART warning)
 
         // YES / NO, or the arrow and PRESS C, shown once the slide is all
         // there (and hidden as it starts - it's drawn before its first Update,
@@ -560,12 +678,84 @@ namespace SpatialEmulator.Demo
         RectTransform Prompts(bool ready)
         {
             bool talk = _talk != null;
-            _choices.gameObject.SetActive(Asking && ready);
+            bool portal = Asking && _slides[_slide].speaker == Speaker.Portal;
+            _choices.gameObject.SetActive(Asking && ready && !portal);
+            bool portalReady = portal && ready;
+            if (portalReady && !_portalYes.gameObject.activeSelf) PlacePortalChoices();
+            _portalYes.gameObject.SetActive(portalReady);
             var pointer = talk ? _talk.pointer : _howToPointer;
             var hint = talk ? _talk.hint : _howToHint;
             pointer.gameObject.SetActive(ready && !Asking);
             hint.gameObject.SetActive(ready && !Asking);
+            PadCircle(hint);
+            KishiLabels();
             return pointer;
+        }
+
+        // A Kishi on (PadLabels): HOW TO PLAY and the answers show its own X, A and B in place of the screen's A, B and
+        // C (what each is on it: GamepadInput), no pixel letter under them. Taken back off, the screen's again.
+        readonly TMP_Text[] _howToRows = new TMP_Text[4];
+        readonly System.Collections.Generic.Dictionary<Image, (Sprite art, Vector2 size, Vector2 at)> _keyArt = new System.Collections.Generic.Dictionary<Image, (Sprite, Vector2, Vector2)>();
+        bool? _kishiLabels;
+        const int KishiKey = PadLabels.ButtonPixels * 3;   // (about the mini buttons' size, whole pixels)
+        static readonly string[] OnScreenName = { null, "A  LIGHT ATTACK", "B  JUMP", "C  MAGIC" };
+        static readonly string[] KishiName = { null, "X  LIGHT ATTACK", "A  JUMP", "B  MAGIC" };
+
+        void KishiLabels()
+        {
+            bool kishi = PadLabels.Kishi;
+            if (_kishiLabels == kishi) return;
+            _kishiLabels = kishi;
+            for (int i = 1; i < _howToRows.Length; i++)
+            {
+                _howToRows[i].text = $"<color=#{ColorUtility.ToHtmlStringRGB(Gold)}>{(kishi ? KishiName : OnScreenName)[i]}</color>\n{HowTo[i].does}";
+                Key(_howTo.Find("Button " + i), i == 1 ? 'X' : i == 2 ? 'A' : 'B', kishi);
+            }
+            Key(_choices.Find("No Button"), 'X', kishi);
+            Key(_choices.Find("Yes Button"), 'B', kishi);
+            Key(_portalYes.Find("Portal Yes Button"), 'X', kishi);
+            foreach (var letter in new[] { _choices.Find("No Letter"), _choices.Find("Yes Letter"), _portalYes.Find("Portal Yes Letter") })
+                if (letter) letter.gameObject.SetActive(!kishi);
+        }
+
+        void Key(Transform key, char letter, bool kishi)
+        {
+            var image = key ? key.GetComponent<Image>() : null;
+            if (!image) return;
+            var rect = image.rectTransform;
+            if (!_keyArt.TryGetValue(image, out var art)) _keyArt[image] = art = (image.sprite, rect.sizeDelta, rect.anchoredPosition);
+            var size = kishi ? new Vector2(KishiKey, KishiKey) : art.size;
+            image.sprite = kishi ? PadLabels.Button(letter) : art.art;
+            rect.sizeDelta = size;
+            rect.anchoredPosition = art.at + Vector2.Scale(new Vector2(0.5f, 0.5f) - rect.pivot, art.size - size);   // (on the same middle)
+        }
+
+        // With a controller (C is its Circle): PRESS and PlayStation's pink circle where the C was (a Kishi: its A, any of the three goes on).
+        readonly System.Collections.Generic.Dictionary<TMP_Text, Image> _rings = new System.Collections.Generic.Dictionary<TMP_Text, Image>();
+        void PadCircle(TMP_Text hint)
+        {
+            if (!hint) return;
+            bool pad = UnityEngine.InputSystem.Gamepad.current != null;
+            if (!_rings.TryGetValue(hint, out var ring) || !ring)
+            {
+                ring = new GameObject("Circle", typeof(RectTransform), typeof(Image)).GetComponent<Image>();
+                var r = ring.rectTransform;
+                r.SetParent(hint.rectTransform, false);
+                r.anchorMin = r.anchorMax = r.pivot = new Vector2(1f, 0.5f);
+                r.sizeDelta = new Vector2(14f, 14f);   // (7 of the font's pixels, 2 to each)
+                r.anchoredPosition = new Vector2(0f, 1f);
+                ring.sprite = RestPrompt.Ring();
+                ring.color = RestPrompt.PadPink;
+                ring.raycastTarget = false;
+                _rings[hint] = ring;
+            }
+            hint.text = pad ? "PRESS" : "PRESS C";
+            bool kishi = PadLabels.Kishi;
+            ring.sprite = kishi ? PadLabels.Button('A') : RestPrompt.Ring();
+            ring.color = kishi ? Color.white : RestPrompt.PadPink;
+            ring.rectTransform.sizeDelta = Vector2.one * (kishi ? 18f : 14f);
+            hint.margin = pad ? new Vector4(0f, 0f, kishi ? 24f : 20f, 0f) : Vector4.zero;
+            ring.enabled = pad;
         }
 
         // The cabinet style's colours on the lines and accents.

@@ -1913,3 +1913,38 @@ popnpopu|popnpop|1997|Taito|Pop'n Pop (Ver 2.07A 1998/02/09)|taito f3||86a237d5,
 landmakr||1998|Taito|Land Maker (Ver 2.02O 1998/06/02)|taito f3||f92eccd0,5a26c9e0,710776a8,b073cda9,e8abfc46,1dc4a164,6cdd8311,6ba29987,76c98e14,4a57965d,18961bbb,2c64557a,c27aec0c,83920d9d,2e717bfe,b371532b,42f59227,eacc294e,e9920cfe
 landmakrj|landmakr|1998|Taito|Land Maker (Ver 2.01J 1998/06/01)|taito f3||0af756a2,636b3df9,279a0ee4,daabf2b2,e8abfc46,1dc4a164,6cdd8311,6ba29987,76c98e14,4a57965d,18961bbb,2c64557a,c27aec0c,83920d9d,2e717bfe,b371532b,42f59227,eacc294e,e9920cfe
 landmakrp|landmakr|1998|Taito|Land Maker (Ver 2.02O 1998/06/02, prototype)|taito f3||f92eccd0,5a26c9e0,710776a8,bc71dd2f,4b862c1b,90502355,3bffe4b2,3a0e1479,1dc6e1ae,a24edb24,1b2a87f3,c7e91180,94cc01d0,c2757722,934556ff,97f0f777,da6ba562,8c201d27,36756b9c,4e0274f3,2689f716,f3086949,7841468a,926ad229,5b3cf564,8e1ea0fe,783b6d10,24aba128,18961bbb,2c64557a,0e5ef5c8,2998fd65,da7477ad,141670b9,e9dc18f6,8af91ca8,6f520b82,69410f0f,d98c275e,82a76cfc,0345f585,4caf571a
+soldivid||1997|Psikyo|Sol Divide: Sword Of Darkness|psikyo||cf179b04,f467d1c4,9eb9f269,7c76cfe7,c59c6858,73bc66d0,f01b816e,fdd57361,e98f8d45
+soldividk|soldivid|1997|Psikyo|Sol Divide: Sword Of Darkness (Korea)|psikyo||b534029d,a48e3206,9eb9f269,7c76cfe7,c59c6858,73bc66d0,f01b816e,fdd57361,e98f8d45
+s1945ii||1997|Psikyo|Strikers 1945 II|psikyo|rot270|20a911b8,4c0fe85e,bfacf98d,1266f67c,2d3332c9,27b32c3e,91ba6d23,fabf4334,a6c3704e,4cd3ca70,ba680ca7,7ac38846
+daraku||1998|Psikyo|The Fallen Angels (World) / Daraku Tenshi: The Fallen Angels (Japan)|psikyo||660b4609,7a9cf601,3742e990,565d8427,9a602630,ac5ce8e1,b0a59f7b,2daa03b2,e98e185a,1d372aa1,597f3f15,e3d58cd8,aebc9cd0,eab5a50b,f157474f,9f008d1b,acd2d0e3,ef2c781d,a9715297
+sbomber||1998|Psikyo|Space Bomber (ver. B)|psikyo|rot270|52d12225,1bbd0345,b7e4ac51,235e6c27,3c88c48c,15626a6e,41e92f64,4ae62e84,43ba5f0f,ff01bb12,e491d593,7bdd377a,85cbff69,7ac38846
+sbombera|sbomber|1998|Psikyo|Space Bomber|psikyo|rot270|57819a26,c388e847,b7e4ac51,235e6c27,3c88c48c,15626a6e,41e92f64,4ae62e84,43ba5f0f,ff01bb12,e491d593,7bdd377a,85cbff69,7ac38846
+gunbird2||1998|Psikyo|Gunbird 2 (set 1)|psikyo|rot270|76f934f0,7328d8bf,a5b697e6,5c826bc8,3df0cb6c,1558358d,4ee0103b,e1c7a7b8,bc8a41df,0229d37f,f41bbf2b,f19796ab,7ac38846
+gunbird2a|gunbird2|1998|Psikyo|Gunbird 2 (set 2)|psikyo|rot270|974f85ba,cb0cb826,23751839,5c826bc8,3df0cb6c,1558358d,4ee0103b,e1c7a7b8,bc8a41df,0229d37f,f41bbf2b,f19796ab,7ac38846
+s1945iii||1999|Psikyo|Strikers 1945 III (World) / Strikers 1999 (Japan)|psikyo|rot270|5d5d385f,1b8a5a18,8ff5f7d3,70a0d52c,4dcd22b4,de1042ff,b51a4430,23b02dca,9933ab04,f693438c,2d0c334f,c5374beb,b39f3604
+s1945iiibl|s1945iii|1999|bootleg|Strikers 1945 III (World) / Strikers 1999 (Japan) (bootleg, set 1)|psikyo|notworking,rot270|ef3f8857,470d909b,f76eb183,70a0d52c,4dcd22b4,de1042ff,b51a4430,23b02dca,9933ab04,f693438c,2d0c334f,c5374beb,b39f3604
+s1945iiibla|s1945iii|1999|bootleg|Strikers 1945 III (World) / Strikers 1999 (Japan) (bootleg, set 2)|psikyo|notworking,rot270|c111ed1a,f67016d0,4922685b,70a0d52c,4dcd22b4,de1042ff,b51a4430,23b02dca,9933ab04,f693438c,2d0c334f,c5374beb,b39f3604,efac207d,72afa479
+dragnblz||2000|Psikyo|Dragon Blaze|psikyo|rot270|fc5eade8,95d6fd02,c2eb565c,23cb46b7,bc256aea,b75f59ec,4284f008,abe5cbbf,c9fcf2e5,0ab0a12a,68d03ccf,5450fbca,8b52c90b,7362f929,b4f4d86e,44b7b9cc,cd079f89,3edb508a,0b53cd78,bc61998a,a3f5c7f8,30e304c4,7fd1b225,46e85da9
+tgm2||2000|Arika|Tetris: The Absolute - The Grand Master 2|psikyo||b19f6c31,c521bf24,d77cff9c,f012b583,078cafc3,1f91446b,40fbd259,186c935f,c17dc48a,e4dba5da,dab1b2c5,aae696b3,e953ace1,9da3b976,233087fe,9da831c7,303a5240,2240ebf6,9155eca6,50e2348c
+tgm2p|tgm2|2000|Arika|Tetris: The Absolute - The Grand Master 2 Plus|psikyo||38bc626c,7599fb19,d77cff9c,f012b583,078cafc3,1f91446b,40fbd259,186c935f,c17dc48a,e4dba5da,dab1b2c5,aae696b3,e953ace1,9da3b976,233087fe,9da831c7,303a5240,2240ebf6,9155eca6,b2328b40
+gnbarich||2001|Psikyo|Gunbarich|psikyo|rot270|c136cd9c,6588fc96,0432e1a8,f90fa3ea,36bf9a58,4b3eafd8,026754da,8cd7aaa0,02c066fe,5433385a,7b10436b,0f5bf42f
+mjgtaste||2002|Psikyo|Mahjong G-Taste|psikyo||5f2041dc,f5ff7876,30da42b1,629c1d44,1f6126ab,dba34e46,1023e35e,8aebec7f,9acf018b,f93e154c,0179f018,d35586f2
+samuraia||1993|Psikyo (Banpresto license)|Samurai Aces (World)|psikyo|rot270|8c9911ca,d20c3ef0,310f5c76,00a546cb,e6a75bd8,c4ca0164,9a7f6c34,11a04d91
+samuraiak|samuraia|1993|Psikyo (Banpresto license)|Samurai Aces (Korea?)|psikyo|rot270|ed4a3626,21803147,310f5c76,00a546cb,e6a75bd8,c4ca0164,9a7f6c34,11a04d91
+sngkace|samuraia|1993|Psikyo (Banpresto license)|Sengoku Ace (Japan, set 1)|psikyo|rot270|6c45b2f8,845a6760,310f5c76,00a546cb,e6a75bd8,c4ca0164,9a7f6c34,11a04d91
+sngkacea|samuraia|1993|Psikyo (Banpresto license)|Sengoku Ace (Japan, set 2)|psikyo|rot270|3a43708d,7aa50c46,310f5c76,00a546cb,e6a75bd8,c4ca0164,9a7f6c34,11a04d91
+gunbird||1994|Psikyo|Gunbird (World)|psikyo|rot270|b78ec99d,925f095d,2168e4ba,7d7e8a00,5e3ffc9d,a827bfb5,ef652e0c,54494e6b,9e07104d,e187ed4f,0905aeb2
+gunbirdk|gunbird|1994|Psikyo|Gunbird (Korea)|psikyo|rot270|745cee52,669632fb,11994055,7d7e8a00,5e3ffc9d,a827bfb5,ef652e0c,54494e6b,9e07104d,e187ed4f,0905aeb2
+gunbirdj|gunbird|1994|Psikyo|Gunbird (Japan)|psikyo|rot270|474abd69,3e3e661f,2168e4ba,7d7e8a00,5e3ffc9d,a827bfb5,ef652e0c,54494e6b,9e07104d,e187ed4f,0905aeb2
+btlkroad||1994|Psikyo|Battle K-Road|psikyo||8a7a28b4,933561fa,22411fab,282d89c3,bbe9d3d1,d4d1b07c,4c8577f1,51d73682,0f33049f,30d541ed
+btlkroadk|btlkroad|1994|Psikyo|Battle K-Road (Korea)|psikyo||e724d429,c0d65765,e0f0c597,282d89c3,bbe9d3d1,d4d1b07c,4c8577f1,51d73682,0f33049f,30d541ed
+s1945||1995|Psikyo|Strikers 1945 (World)|psikyo|rot270|9b10062a,f87e871a,42d40ae1,28a27fee,ca152a32,c5d60ea9,48710332,aaf83e23,a839cf47,dee22654
+s1945a|s1945|1995|Psikyo|Strikers 1945 (Japan / World)|psikyo|rot270|29ffc217,c3d3fb64,42d40ae1,28a27fee,ca152a32,c5d60ea9,48710332,aaf83e23,a839cf47,dee22654
+s1945j|s1945|1995|Psikyo|Strikers 1945 (Japan)|psikyo|rot270|c00eb012,3f5a134b,42d40ae1,28a27fee,ca152a32,c5d60ea9,48710332,aaf83e23,a839cf47,dee22654
+s1945n|s1945|1995|Psikyo|Strikers 1945 (World, unprotected)|psikyo|rot270|28fb8181,8ca05f94,e3e366bd,28a27fee,ca152a32,c5d60ea9,48710332,aaf83e23,fe1312c2,a44a4a9b,dee22654
+s1945nj|s1945|1995|Psikyo|Strikers 1945 (Japan, unprotected)|psikyo|rot270|95028132,3df79a16,e3e366bd,28a27fee,ca152a32,c5d60ea9,48710332,aaf83e23,fe1312c2,a44a4a9b,dee22654
+s1945k|s1945|1995|Psikyo|Strikers 1945 (Korea)|psikyo|rot270|5a32af36,29cc6d7d,42d40ae1,28a27fee,ca152a32,c5d60ea9,48710332,aaf83e23,a839cf47,dee22654
+s1945bl|s1945|1995|bootleg|Strikers 1945 (Hong Kong, bootleg)|psikyo|rot270|d3361536,1d1916b1,391e0387,2aebcf6b,70c8f72e,0dec2a8d,aaf83e23,c22e5b65,e38d5ab7,cb8c65ec,0da8db45
+tengai||1996|Psikyo|Tengai (World)|psikyo||90088195,0d53196c,2025e387,e563b054,ed42ef73,8d21caee,efe34eed,2a2e2eeb,a63633c5,3ad0c357,681d7d55
+tengaij|tengai|1996|Psikyo|Sengoku Blade: Sengoku Ace Episode II (Japan) / Tengai (World)|psikyo||ab6fe58a,02e42e39,2025e387,e563b054,ed42ef73,8d21caee,efe34eed,2a2e2eeb,a63633c5,3ad0c357,681d7d55
+tengaibl|tengai|1996|Psikyo|Tengai (bootleg)|psikyo|notworking,imperfect|1519c1c4,4f638dca,ed42ef73,8d21caee,efe34eed,2a2e2eeb,769f4c92,f06f0a00,cf44d2ba

@@ -1,4 +1,5 @@
-// GameCenter.cs — ENDLESS KNIGHT's Game Center leaderboard (native side:
+// GameCenter.cs — the demos' Game Center leaderboards, ENDLESS KNIGHT's and
+// THE TIME CRYSTAL's (native side:
 // Plugins/iOS/SEGameCenter.mm). Signs the player in at launch, submits a
 // run's score (DeathRespawn as the knight falls, RESTART, and the leaderboard
 // opening), and loads the global top scores for UI.LeaderboardWindow.
@@ -19,6 +20,28 @@ namespace SpatialEmulator.Games
     public static class GameCenter
     {
         public const string LeaderboardId = "endlessknight.highscore";
+        /// THE TIME CRYSTAL's (set up in App Store Connect the same way).
+        public const string TimeCrystalLeaderboardId = "timecrystal.highscore";
+
+        /// ENDLESS KNIGHT's level `level` best time (LevelTimer: hundredths of a second, lowest best).
+        public static string LevelTimeBoard(int level) => "endlessknight.level" + level + ".time";
+        public const int KnightLevels = 4;
+        public static bool IsTimeBoard(string board) => board != null && board.EndsWith(".time");
+
+        /// Hundredths of a second as mm:ss:hh (six digits, colons only).
+        public static string FormatTime(long hundredths)
+        {
+            long minutes = hundredths / 6000, rest = hundredths % 6000;
+            return minutes.ToString("00") + ":" + (rest / 100).ToString("00") + ":" + (rest % 100).ToString("00");
+        }
+
+        /// The board of the demo that's running (ENDLESS KNIGHT's otherwise).
+        public static string CurrentBoard => Demo.TimeCrystalGame.IsRunning ? TimeCrystalLeaderboardId : LeaderboardId;
+
+        /// The demo that's running's score now (0 if neither is).
+        public static long CurrentScore =>
+            Demo.TimeCrystalGame.IsRunning ? (TimeCrystal.ScoreManager.Instance ? TimeCrystal.ScoreManager.Instance.Score : 0) :
+            Demo.PitDemoGame.IsRunning && PitScoreManager.Instance ? PitScoreManager.Instance.GetScore() : 0;
         public const int TopCount = 50;
 
         public struct Entry
@@ -48,24 +71,26 @@ namespace SpatialEmulator.Games
         public static bool Settled => true;
 #endif
 
-        static long s_submitted;
+        static readonly System.Collections.Generic.Dictionary<string, long> s_submitted = new System.Collections.Generic.Dictionary<string, long>();
 
-        /// Sends a run's score (Game Center keeps each player's best).
-        public static void Submit(long score)
+        /// Sends a run's score to `board` (ENDLESS KNIGHT's if not given;
+        /// Game Center keeps each player's best).
+        public static void Submit(long score, string board = null)
         {
-            if (score <= 0 || score == s_submitted) return;
-            s_submitted = score;
+            board ??= LeaderboardId;
+            if (score <= 0 || (s_submitted.TryGetValue(board, out long last) && last == score)) return;
+            s_submitted[board] = score;
 #if UNITY_IOS && !UNITY_EDITOR
-            SE_GCSubmit(LeaderboardId, score);
+            SE_GCSubmit(board, score);
 #endif
         }
 
         /// Loads the top entries; the reply comes to receiver's `method` as
         /// text for Parse.
-        public static void LoadTop(GameObject receiver, string method)
+        public static void LoadTop(GameObject receiver, string method, string board = null)
         {
 #if UNITY_IOS && !UNITY_EDITOR
-            SE_GCLoadTop(LeaderboardId, TopCount, receiver.name, method);
+            SE_GCLoadTop(board ?? LeaderboardId, TopCount, receiver.name, method);
 #else
             var lines = new System.Text.StringBuilder();
             for (int i = 1; i <= 30; i++)

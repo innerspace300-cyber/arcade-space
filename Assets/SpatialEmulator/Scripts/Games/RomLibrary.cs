@@ -246,10 +246,11 @@ namespace SpatialEmulator.Games
         /// Every game in the library, audited, sorted by title.
         public static List<LibraryGame> Scan()
         {
-            // The built-in demo is always installed, first in the list.
+            // The built-in demos are always installed, first in the list.
             var games = new List<LibraryGame>();
             var demo = new LibraryGame { game = Demo.PitDemoGame.Info, status = RomStatus.Ready };
-            if (!Directory.Exists(RomsDir)) { games.Add(demo); return games; }
+            var verticalDemo = new LibraryGame { game = Demo.TimeCrystalGame.Info, status = RomStatus.Ready };
+            if (!Directory.Exists(RomsDir)) { games.Add(demo); games.Add(verticalDemo); return games; }
 
             var crcCache = new Dictionary<string, HashSet<uint>>();
             foreach (string zip in Directory.GetFiles(RomsDir, "*.zip"))
@@ -265,6 +266,7 @@ namespace SpatialEmulator.Games
             }
             games.Sort((a, b) => string.Compare(a.game.description, b.game.description, StringComparison.OrdinalIgnoreCase));
             games.Insert(0, demo);
+            games.Insert(1, verticalDemo);
             return games;
         }
 

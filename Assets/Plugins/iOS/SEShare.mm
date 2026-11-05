@@ -8,6 +8,35 @@
 
 extern UIViewController* UnityGetGLViewController();
 
+// The controller on top of everything (a sheet or banner already up - Game
+// Center's, say - would make presenting from Unity's root silently fail).
+static UIViewController* SETopController()
+{
+    UIViewController* top = UnityGetGLViewController();
+    while (top.presentedViewController && !top.presentedViewController.isBeingDismissed) top = top.presentedViewController;
+    return top;
+}
+
+// Presents `sheet` from the top controller; if that's mid-animation (or not
+// on screen yet), tries again a moment later, a few times.
+static void SEPresent(UIViewController* sheet, int tries, void (^failed)(void))
+{
+    UIViewController* top = SETopController();
+    if (!top || top.isBeingPresented || top.isBeingDismissed || !top.view.window)
+    {
+        if (tries > 0)
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ SEPresent(sheet, tries - 1, failed); });
+        else if (failed) failed();   // (never got on screen: let the game go on)
+        return;
+    }
+    // (On an iPad the sheet is a popover: from the middle of the screen.)
+    sheet.popoverPresentationController.sourceView = top.view;
+    sheet.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(top.view.bounds), CGRectGetMidY(top.view.bounds), 1, 1);
+    sheet.popoverPresentationController.permittedArrowDirections = 0;
+    [top presentViewController:sheet animated:YES completion:nil];
+}
+extern "C" void UnitySendMessage(const char* obj, const char* method, const char* msg);
+
 extern "C" void SE_ShareImage(const char* path)
 {
     UIImage* image = [UIImage imageWithContentsOfFile:[NSString stringWithUTF8String:path]];
@@ -83,14 +112,38 @@ extern "C" void SE_ShareImage(const char* path)
 @end
 
 // A file (the CAP key's video): the sheet offers it as a movie - Save Video,
-// AirDrop, Messages and the like, and YouTube (above).
-extern "C" void SE_ShareFile(const char* path)
+// AirDrop, Messages and the like, and YouTube (above). When the sheet's
+// gone, `method` is sent to the object called `gameObject` (the game's
+// paused while it's up).
+extern "C" void SE_ShareFile(const char* path, const char* gameObject, const char* method)
 {
+    NSString* target = [NSString stringWithUTF8String:gameObject];
+    NSString* callback = [NSString stringWithUTF8String:method];
     NSURL* url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:path]];
-    UIViewController* root = UnityGetGLViewController();
     UIActivityViewController* share = [[UIActivityViewController alloc] initWithActivityItems:@[ url ] applicationActivities:@[ [SEYouTubeActivity new] ]];
-    share.popoverPresentationController.sourceView = root.view;
-    share.popoverPresentationController.sourceRect = CGRectMake(CGRectGetMidX(root.view.bounds), CGRectGetMidY(root.view.bounds), 1, 1);
-    share.popoverPresentationController.permittedArrowDirections = 0;
-    [root presentViewController:share animated:YES completion:nil];
+    share.completionWithItemsHandler = ^(UIActivityType type, BOOL completed, NSArray* items, NSError* error) {
+        UnitySendMessage(target.UTF8String, callback.UTF8String, "");
+    };
+    dispatch_async(dispatch_get_main_queue(), ^{ SEPresent(share, 10, ^{ UnitySendMessage(target.UTF8String, callback.UTF8String, ""); }); });
+}
+
+// The video at `path` saved to Photos (ShareWindow.cs, for a controller: nothing to tap in
+// the sheet); "1" or "0" sent to `method` on `gameObject` when it's done.
+extern "C" void SE_SaveVideo(const char* path, const char* gameObject, const char* method)
+{
+    NSString* target = [NSString stringWithUTF8String:gameObject];
+    NSString* callback = [NSString stringWithUTF8String:method];
+    NSURL* url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:path]];
+    void (^reply)(BOOL) = ^(BOOL ok) {
+        dispatch_async(dispatch_get_main_queue(), ^{ UnitySendMessage(target.UTF8String, callback.UTF8String, ok ? "1" : "0"); });
+    };
+    [PHPhotoLibrary requestAuthorizationForAccessLevel:PHAccessLevelAddOnly handler:^(PHAuthorizationStatus status) {
+        if (status != PHAuthorizationStatusAuthorized && status != PHAuthorizationStatusLimited) { reply(NO); return; }
+        [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
+            [PHAssetChangeRequest creationRequestForAssetFromVideoAtFileURL:url];
+        } completionHandler:^(BOOL success, NSError* error) {
+            if (!success) NSLog(@"[SEShare] saving the video: %@", error);
+            reply(success);
+        }];
+    }];
 }

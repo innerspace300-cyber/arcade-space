@@ -72,7 +72,8 @@ public class BombGuy : MonoBehaviour
         foreach (var bomb in FindObjectsByType<BombGuy>(FindObjectsSortMode.None))
         {
             if (!bomb._renderer || bomb._knockStart >= 0f || !bomb.Overlaps(area)) continue;
-            bomb.InTheBlow();
+            if (bomb._player && bomb._player.IsSprinting) { bomb.Scored(); bomb.Explode(harmful: false); }
+            else bomb.InTheBlow();
             hit++;
         }
         return hit;
@@ -171,15 +172,20 @@ public class BombGuy : MonoBehaviour
             float y = Mathf.Lerp(_knockLiftFrom, 0f, t) + Mathf.Sin(Mathf.PI * t) * knockLift;
             Place(x, SpikeTrap.PlayerFeetY + y);
             _renderer.flipX = _toX < _fromX;
-            if (t >= 1f) Explode(harmful: false);   // knocked away by her: his blast can't hurt her
+            if (t >= 1f) { Scored(); Explode(harmful: false); }   // knocked away by her: his blast can't hurt her
             return;
         }
 
         // Into her attack's reach while it's playing: in the blow.
-        if (_player.ActiveAttackArea(out var blow) && Overlaps(blow)) InTheBlow();
+        if (_player.ActiveAttackArea(out var blow) && Overlaps(blow))
+        {
+            // ARcade: hit at a sprint, he just goes off where he is, harmlessly - no flight.
+            if (_player.IsSprinting) { Scored(); Explode(harmful: false); return; }
+            InTheBlow();
+        }
         if (_contactAt >= 0f && Time.time - _contactAt >= overlapHold) { KnockBack(); return; }
         // Run into (not being batted away): he goes off on her.
-        if (_contactAt < 0f && Touching()) { Explode(harmful: !PlayerBuffs.Shield); return; }
+        if (_contactAt < 0f && Touching()) { if (PlayerBuffs.Shield) PlayerBuffs.Blocked(transform.position.x); Explode(harmful: !PlayerBuffs.Shield); return; }
 
         if (_fuseStart < 0f)
         {
@@ -203,7 +209,11 @@ public class BombGuy : MonoBehaviour
         _renderer.sprite = lit && fuseFrame ? fuseFrame : walkFrames[0];
         float target = _toX + leapHoming * (playerX - _playerAtLeap);
         Place(Mathf.Lerp(_fromX, target, Smooth(burnt)), SpikeTrap.PlayerFeetY + Mathf.Sin(Mathf.PI * burnt) * leapHeight);
-        if (burnt >= 1f) Explode(harmful: !PlayerBuffs.Shield);   // ARcade: shielded, he just goes off
+        if (burnt >= 1f)
+        {
+            if (PlayerBuffs.Shield && Mathf.Abs(playerX - transform.position.x) < 0.6f) PlayerBuffs.Blocked(transform.position.x);   // (on her: it glances off her shield)
+            Explode(harmful: !PlayerBuffs.Shield);   // ARcade: shielded, he just goes off
+        }
     }
 
     // His drawn body touchDepthPixels into hers, across and up (over her
@@ -223,6 +233,10 @@ public class BombGuy : MonoBehaviour
     /// Blows up where he stands without hurting anyone (the road is cleared
     /// when the Slime Boss dies).
     public void Detonate() => Explode(harmful: false);
+
+    // Beaten by her: his kill points, once (RoadFoe.KillPoints).
+    bool _scored;
+    void Scored() { if (_scored) return; _scored = true; RoadFoe.KillPoints(boss: false); }
 
     void Explode(bool harmful = true)
     {

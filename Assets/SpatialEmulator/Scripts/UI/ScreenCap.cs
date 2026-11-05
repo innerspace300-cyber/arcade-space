@@ -7,7 +7,9 @@
 // when STOP's tapped (always, with UNTIL STOP), and iOS's share sheet comes
 // up with the video (Plugins/iOS/SEShare.mm: Save Video, AirDrop, Messages,
 // Mail, YouTube, and apps like Instagram, Snapchat and Gmail when they're
-// installed). Holding the key opens its options (Settings' SOUND + CAP
+// installed; with a controller connected ShareWindow's SAVE TO PHOTOS / SHARE ON
+// PHONE / CLOSE instead, which it can steer) - after SCREEN CAP DONE a moment first, the
+// game held, so a press still meant for the game can't pick one. Holding the key opens its options (Settings' SOUND + CAP
 // window, SettingsAudioRows): CAP LENGTH, FADE IN and FADE OUT.
 //
 // The video's 9:16 (720 x 1280), the whole screen fitted in, dark bars down
@@ -22,11 +24,17 @@
 // (tapped off the AudioListener), by Plugins/iOS/SERecorder.mm. In the
 // Editor nothing's written: a frame from just after the watermark's popped
 // up is saved as a picture, its path logged.
+//
+// On a TV (TvOutput.Showing when the countdown ends) it's the TV's picture instead,
+// at the TV's own shape (16:9, up to 1920 x 1080): its camera drawn again into the
+// video's frame, the game and any menus on it as seen there - not the phone's
+// controller screen. The watermark sits low in the black at the left.
 
 using System;
 using System.Collections;
 using System.IO;
 using System.Runtime.InteropServices;
+using SpatialEmulator.Mobile;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -42,7 +50,7 @@ namespace SpatialEmulator.UI
         [DllImport("__Internal")] static extern void SE_RecVideoFrame(byte[] bgra, int width, int height);
         [DllImport("__Internal")] static extern void SE_RecAudio(float[] samples, int count, int channels);
         [DllImport("__Internal")] static extern void SE_RecStop(string gameObject, string method);
-        [DllImport("__Internal")] static extern void SE_ShareFile(string path);
+        [DllImport("__Internal")] static extern void SE_ShareFile(string path, string gameObject, string method);
 #endif
 
         // ---- the options (Settings' SOUND + CAP window) ----
@@ -88,7 +96,7 @@ namespace SpatialEmulator.UI
         const int Fps = 30;
         const int VideoWidth = 720, VideoHeight = 1280;   // 9:16
         const float FadeSeconds = 0.5f;
-        const float WatermarkShare = 0.42f;      // of the video's width, about (as whole pixels)...
+        const float WatermarkShare = 0.28f;      // of the video's width, about (as whole pixels)... (the icon over ARcade: narrower than the old side-by-side one)
         const float WatermarkSize = 0.8f;        // ...then this much of that
         const float WatermarkBottom = 0.71f;     // its bottom, down the video: just above the joystick (its top's about 0.73)
         const float WatermarkSeconds = 5f, WatermarkPop = 0.45f;
@@ -96,6 +104,22 @@ namespace SpatialEmulator.UI
         enum State { Idle, Counting, Recording, Finishing }
         static State s_state;
         static ScreenCap s_active;
+        /// A 3, 2, 1 counting down to a recording.
+        public static bool Counting => s_state == State.Counting;
+        /// The game's held by a menu CAP was tapped from: let it go when recording starts (MenuPause).
+        public static bool ResumeOnRecord;
+        static float s_stoppedAt = -1f;
+
+        /// The countdown on its own (a menu closing: MenuPause), then `done`.
+        public static void RunCountdown(System.Action done) => Host.Run(CountdownThen(done));
+
+        static IEnumerator CountdownThen(System.Action done)
+        {
+            yield return Countdown();
+            done?.Invoke();
+        }
+        /// The share sheet's up (the game's paused).
+        public static bool Sharing { get; private set; }
 
         /// Recording, for the sound tap (read on the audio thread).
         internal static volatile bool Capturing;
@@ -114,6 +138,7 @@ namespace SpatialEmulator.UI
         bool _fadeIn, _fadeOut;
         string _path;
         bool _editorFrameSaved;
+        bool _tv;              // recording the TV's picture (TvOutput), not the phone's screen
         float _downAt = -1f;
         bool _swallowClick;
 
@@ -203,9 +228,14 @@ namespace SpatialEmulator.UI
             switch (s_state)
             {
                 case State.Idle:
+                    // Not of the game picker (MY GAMES): only of a game.
+                    if (GamePicker.IsOpen) return;
                     Haptics.Play(Haptics.Kind.Light);
                     s_active = this;
-                    StartCoroutine(Begin());
+                    Host.Run(Begin());
+                    // From the AR side menus: they fold away, the game held through the countdown (MenuPause).
+                    if (SaveStatePanel.SideMenusOpen) { SaveStatePanel.SideMenusOpen = false; MenuPause.Close(MenuPause.Menu.Side); }
+                    MenuDropdown.CloseIfOpen();   // (and the screen's menu: CAP's countdown carries the game on once both are shut)
                     break;
                 case State.Recording:
                     if (s_active == this) Finish();
@@ -213,8 +243,14 @@ namespace SpatialEmulator.UI
             }
         }
 
+        CanvasGroup _dim;
+
         void Update()
         {
+            // Dimmed over the game picker (it can't be tapped there).
+            float alpha = GamePicker.IsOpen && s_state == State.Idle ? 0.35f : 1f;
+            if (!_dim && alpha < 1f) _dim = gameObject.AddComponent<CanvasGroup>();
+            if (_dim && _dim.alpha != alpha) _dim.alpha = alpha;
             // Held: its options.
             if (_downAt >= 0f && Time.unscaledTime - _downAt >= HoldSeconds)
             {
@@ -223,7 +259,66 @@ namespace SpatialEmulator.UI
                 Haptics.Play(Haptics.Kind.Medium);
                 SettingsAudioRows.OpenCapOptions();
             }
+        }
+
+        // ---- the recording, run by Host ----
+        // Not by the key itself: the screen menu's CAP key is put away (its
+        // list closed) the moment it's tapped, and a switched-off key's
+        // coroutines and Update stop - the countdown froze on 3 and the
+        // length never ran out. Host is always on.
+        sealed class Host : MonoBehaviour
+        {
+            static Host s_host;
+
+            static Host Get()
+            {
+                if (s_host) return s_host;
+                var go = new GameObject("ARcade Cap Host");
+                DontDestroyOnLoad(go);
+                return s_host = go.AddComponent<Host>();
+            }
+
+            public static string Name => Get().gameObject.name;
+            public static void Run(IEnumerator routine) => Get().StartCoroutine(routine);
+
+            void Update()
+            {
+                if (s_active) s_active.Tick();
+                // The finished file's message never came (it should within a second or two): CAP's let go anyway.
+                if (s_state == State.Finishing && !Capturing && s_stoppedAt > 0f && Time.unscaledTime - s_stoppedAt > 15f)
+                {
+                    s_stoppedAt = -1f;
+                    if (s_active) s_active.OnRecorded("");
+                    else s_state = State.Idle;
+                }
+            }
+
+            // From SERecorder.mm (by this object's name): the file's path, or "".
+            public void OnRecorded(string path)
+            {
+                if (s_active) s_active.OnRecorded(path);
+                else s_state = State.Idle;
+            }
+
+            // From SEShare.mm: the share sheet's gone - a 3, 2, 1, then the game goes on.
+            public void OnShareClosed(string unused) => ShareClosed();
+
+            public static void ShareClosed()
+            {
+                if (!Sharing) return;
+                Sharing = false;
+                // (Under a menu that's holding the game anyway: that lets it go itself.)
+                bool held = GamePicker.IsOpen || SettingsScreen.IsOpen || LeaderboardWindow.IsOpen || SavesWindow.IsOpen || MenuPause.Held;
+                MobileRetroDepthLayerStack.Paused = true;
+                if (!held) RunCountdown(MenuPause.ResumeNow);
+            }
+        }
+
+        void Tick()
+        {
             if (s_active != this || (s_state != State.Recording && s_state != State.Finishing)) return;
+            // The game picker opened: the video ends there (it's only of games).
+            if (s_state == State.Recording && GamePicker.IsOpen) { Finish(); return; }
             float t = Time.unscaledTime - _started;
             if (_dot) _dot.enabled = Mathf.Repeat(t, 1f) < 0.6f;   // blinking
             AudioGain = Level(t);
@@ -233,16 +328,34 @@ namespace SpatialEmulator.UI
 
         void OnDestroy()
         {
-            if (s_active == this && s_state != State.Idle) { Capturing = false; s_state = State.Idle; s_active = null; }
+            if (s_active != this || s_state == State.Idle) return;
+            // Its key gone mid-recording: the file's finished off (not left open), then idle.
+            if (Capturing) Stop();
+            Release();
+            Capturing = false;
+            s_state = State.Idle;
+            s_active = null;
         }
 
         IEnumerator Begin()
         {
             s_state = State.Counting;
             yield return Countdown();
+            if (s_active != this || s_state != State.Counting) yield break;   // (its key went meanwhile)
+            if (GamePicker.IsOpen) { s_state = State.Idle; s_active = null; ResumeOnRecord = false; yield break; }   // (the picker opened meanwhile)
 
             int w = VideoWidth, h = VideoHeight;
-            _screen = new RenderTexture(Screen.width, Screen.height, 0, RenderTextureFormat.ARGB32) { name = "ARcade Rec Screen" };
+            _tv = TvOutput.Showing && TvOutput.Camera;
+            var source = new Vector2Int(Screen.width, Screen.height);
+            if (_tv)
+            {
+                // The TV's size, its shape kept, no more than 1080 lines (and even, for H.264).
+                source = Vector2Int.RoundToInt(TvOutput.Size);
+                float k = Mathf.Min(1f, 1080f / source.y, 1920f / source.x);
+                w = Mathf.RoundToInt(source.x * k / 2f) * 2;
+                h = Mathf.RoundToInt(source.y * k / 2f) * 2;
+            }
+            _screen = new RenderTexture(source.x, source.y, 24, RenderTextureFormat.ARGB32) { name = "ARcade Rec Screen" };
             _screen.Create();
             _frame = new RenderTexture(w, h, 0, RenderTextureFormat.ARGB32) { name = "ARcade Rec" };
             _frame.Create();
@@ -258,11 +371,21 @@ namespace SpatialEmulator.UI
             var audio = AudioSettings.GetConfiguration();
             int channels = audio.speakerMode == AudioSpeakerMode.Mono ? 1 : 2;
 #if UNITY_IOS && !UNITY_EDITOR
-            if (!SE_RecStart(_path, w, h, Fps, audio.sampleRate, channels))
+            // (Once more a moment later if the writer won't start - the first try can miss.)
+            bool started = SE_RecStart(_path, w, h, Fps, audio.sampleRate, channels);
+            if (!started)
+            {
+                yield return null;
+                _path = Path.Combine(Application.temporaryCachePath, $"ARcade {DateTime.Now:yyyy-MM-dd HH.mm.ss} b.mp4");
+                started = SE_RecStart(_path, w, h, Fps, audio.sampleRate, channels);
+            }
+            if (!started)
             {
                 Debug.LogError("[ScreenCap] couldn't start recording");
                 Release();
                 s_state = State.Idle;
+                if (ResumeOnRecord) { ResumeOnRecord = false; MenuPause.ResumeNow(); }
+                var picker = FindAnyObjectByType<GamePicker>(); if (picker) picker.ShowMessage("Couldn't start recording - try CAP again", true);
                 yield break;
             }
 #endif
@@ -271,10 +394,12 @@ namespace SpatialEmulator.UI
             _inFlight = 0;
             _editorFrameSaved = false;
             Capturing = true;
+            // Opened from a menu: the game was held through the countdown - it goes on as recording begins.
+            if (ResumeOnRecord) { ResumeOnRecord = false; MenuPause.ResumeNow(); }
             s_state = State.Recording;
             Show();
             Haptics.Play(Haptics.Kind.Medium);
-            StartCoroutine(Frames());
+            Host.Run(Frames());
         }
 
         // STOP: with FADE OUT, half a second more fading out to black, then it stops.
@@ -293,11 +418,12 @@ namespace SpatialEmulator.UI
             if (s_state == State.Idle || !Capturing) return;
             s_state = State.Finishing;
             Capturing = false;
+            s_stoppedAt = Time.unscaledTime;
             AudioGain = 1f;
             if (_dot) _dot.enabled = true;
             _endAt = -1f;
 #if UNITY_IOS && !UNITY_EDITOR
-            SE_RecStop(gameObject.name, nameof(OnRecorded));
+            SE_RecStop(Host.Name, nameof(OnRecorded));
 #else
             OnRecorded("");
 #endif
@@ -311,8 +437,50 @@ namespace SpatialEmulator.UI
             Show();
             if (string.IsNullOrEmpty(path)) return;
 #if UNITY_IOS && !UNITY_EDITOR
-            SE_ShareFile(path);
+            // The game holds while the share sheet's up (Host.OnShareClosed lets it go) - first SCREEN CAP DONE a moment,
+            // so a press still meant for the game doesn't land on the sheet's keys.
+            Sharing = true;
+            MobileRetroDepthLayerStack.Paused = true;
+            Host.Run(DoneThenShare(path));
 #endif
+        }
+
+        const float DoneSeconds = 1.5f;
+
+        static IEnumerator DoneThenShare(string path)
+        {
+            yield return Done();
+#if UNITY_IOS && !UNITY_EDITOR
+            // With a controller: ARcade's own window, which it can steer (iOS's sheet it can't) - on the TV with the menus.
+            if (UnityEngine.InputSystem.Gamepad.current != null
+                && ShareWindow.Open(path, share => { if (share) SE_ShareFile(path, Host.Name, "OnShareClosed"); else Host.ShareClosed(); }))
+                yield break;
+            SE_ShareFile(path, Host.Name, "OnShareClosed");
+#endif
+        }
+
+        // SCREEN CAP DONE, in white on three lines, popping up over the held game a moment.
+        static IEnumerator Done()
+        {
+            var overlay = Overlay("Cap Done", out var root, 32010);
+            var label = new GameObject("Done", typeof(RectTransform)).AddComponent<TextMeshProUGUI>();
+            label.rectTransform.SetParent(root, false);
+            label.rectTransform.sizeDelta = new Vector2(360f, 160f);
+            var font = ArcadeFont();
+            if (font) label.font = font;
+            label.fontSize = 14f;   // (the canvas fits 390 wide, so on a landscape screen this reads far bigger)
+            label.alignment = TextAlignmentOptions.Center;
+            label.color = Color.white;
+            label.text = "SCREEN\nCAP\nDONE";
+            Haptics.Play(Haptics.Kind.Medium);
+            for (float t = 0f; t < DoneSeconds; t += Time.unscaledDeltaTime)
+            {
+                label.rectTransform.localScale = Vector3.one * Mathf.Lerp(1.3f, 1f, Mathf.Min(1f, t * 6f));
+                label.alpha = t < DoneSeconds - 0.25f ? 1f : (DoneSeconds - t) / 0.25f;
+                yield return null;
+            }
+            Destroy(overlay);
+            yield return null;
         }
 
         void Release()
@@ -344,7 +512,17 @@ namespace SpatialEmulator.UI
                 if (_lastFrame >= 0f && now - _lastFrame < 1f / Fps - 0.004f) continue;
                 if (_inFlight >= 3) continue;   // (the GPU's behind: skip one)
                 _lastFrame = now;
-                ScreenCapture.CaptureScreenshotIntoRenderTexture(_screen);
+                if (_tv)
+                {
+                    // (The TV gone meanwhile: the video ends there.)
+                    var tv = TvOutput.Camera;
+                    if (!tv) { Finish(); continue; }
+                    var target = tv.targetTexture;
+                    tv.targetTexture = _screen;
+                    tv.Render();
+                    tv.targetTexture = target;
+                }
+                else ScreenCapture.CaptureScreenshotIntoRenderTexture(_screen);
                 Compose(now - _started);
                 _inFlight++;
                 AsyncGPUReadback.Request(_frame, 0, TextureFormat.BGRA32, OnReadback);
@@ -363,7 +541,7 @@ namespace SpatialEmulator.UI
             float fit = Mathf.Min(w / (float)_screen.width, h / (float)_screen.height);
             float sw = _screen.width * fit, sh = _screen.height * fit;
             var picture = new Rect((w - sw) * 0.5f, (h - sh) * 0.5f, sw, sh);
-            if (FlipScreen) Graphics.DrawTexture(picture, _screen, new Rect(0, 1, 1, -1), 0, 0, 0, 0);
+            if (FlipScreen && !_tv) Graphics.DrawTexture(picture, _screen, new Rect(0, 1, 1, -1), 0, 0, 0, 0);
             else Graphics.DrawTexture(picture, _screen);
             Watermark(t, w, h);
             float level = Level(t);
@@ -374,7 +552,7 @@ namespace SpatialEmulator.UI
         }
 
         // The screen's copy comes upside down where textures start at the top
-        // (Metal, the iPhone's).
+        // (Metal, the iPhone's). (Not the TV camera's: drawn into a texture, it's the right way up.)
         static bool FlipScreen => SystemInfo.graphicsUVStartsAtTop;
 
         // The watermark on the left, just above the joystick: from the end of any fade in, it
@@ -391,11 +569,14 @@ namespace SpatialEmulator.UI
             if (scale <= 0.001f) return;
             // The jiggle: a quick wobble that settles, while it's up.
             float wobble = Mathf.Sin(local * 18f) * 4f * Mathf.Exp(-Mathf.Max(0f, local - WatermarkPop) * 1.6f) * grow;
-            // (80% of its old size - a whole-pixel scale, about WatermarkShare across.)
-            float k = Mathf.Max(1, Mathf.RoundToInt(w * WatermarkShare / _watermark.width)) * WatermarkSize;
-            float mw = Mathf.Round(_watermark.width * k), mh = Mathf.Round(_watermark.height * k), margin = Mathf.Round(w * 0.05f);
+            // (A whole-pixel scale, about WatermarkShare x WatermarkSize across: never a fraction of
+            // its pixels, which would drop its one-pixel grid lines and glow.)
+            // (On the TV's wide video: sized as if it were 3:4, low in the black at the left.)
+            float across = _tv ? h * 0.75f : w;
+            float k = Mathf.Max(1, Mathf.RoundToInt(across * WatermarkShare * WatermarkSize / _watermark.width));
+            float mw = Mathf.Round(_watermark.width * k), mh = Mathf.Round(_watermark.height * k), margin = Mathf.Round(across * 0.05f);
             // (Its bottom a little above the on-screen joystick's ring, where it rests.)
-            var centre = new Vector3(margin + mw * 0.5f, Mathf.Round(h * WatermarkBottom - mh * 0.5f), 0f);
+            var centre = new Vector3(margin + mw * 0.5f, Mathf.Round(h * (_tv ? 0.92f : WatermarkBottom) - mh * 0.5f), 0f);
             GL.PushMatrix();
             GL.MultMatrix(Matrix4x4.TRS(centre, Quaternion.Euler(0f, 0f, wobble), Vector3.one * scale));
             // (DrawTexture's colour: 0.5 is the texture as it is.)
@@ -441,7 +622,7 @@ namespace SpatialEmulator.UI
 
         // ---- on screen ----
 
-        IEnumerator Countdown()
+        static IEnumerator Countdown()
         {
             var overlay = Overlay("Cap Countdown", out var root, 32010);
             var number = new GameObject("Number", typeof(RectTransform)).AddComponent<TextMeshProUGUI>();

@@ -78,6 +78,16 @@ namespace SpatialEmulator
         }
         bool _locked;
 
+        /// The move key (beside LOCK, GamesPanel): selects the cabinet - its
+        /// arrows, ring and Delete - or lets it go; unlocks it first.
+        public void ToggleSelected()
+        {
+            if (isSelected) { SetSelected(false); return; }
+            _locked = false;
+            SetSelected(true);
+            lastInteractionTime = Time.unscaledTime;
+        }
+
         /// How visible the selection UI is: 1 while editing, fading to 0.
         public float editAlpha => isSelected && _gizmo ? _gizmo.alpha : 0f;
 

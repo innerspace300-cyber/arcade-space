@@ -105,6 +105,8 @@ public class PlayerGlow : MonoBehaviour
         // like a star while a buff (Sword or Shield, or both) is on.
         float heal = Time.time - _healAt, mana = Time.time - _manaAt;
         bool golden = _player && _player.IsSleeping && stats && stats.health >= stats.MaxHP && stats.mana >= stats.MaxMP;
+        bool raging = PlayerBuffs.Big && !(_player && _player.IsDead);   // (big on viking food: red, fire off her shoulders)
+        Rage(visible && raging);
         // The aura: green while she rests and heals, purple asleep (healing
         // and getting mana back), gold asleep with both full.
         bool sleeping = _player && _player.IsSleeping;
@@ -115,6 +117,12 @@ public class PlayerGlow : MonoBehaviour
         bool outline = false;
         if (heal < healTime && Mathf.Repeat(heal / healTime * outlineBlinks, 1f) < 0.6f) { color = healColor; outline = true; }
         else if (mana < manaTime && Mathf.Repeat(mana / manaTime * outlineBlinks, 1f) < 0.6f) { color = manaColor; outline = true; }
+        else if (raging)
+        {
+            // Big on viking food: red, flickering like fire.
+            color = Color.Lerp(rageColor, rageHot, Mathf.PingPong(Time.time * 7f, 1f));
+            outline = true;
+        }
         else if (golden)
         {
             // Asleep, rested to the full: gold, shimmering, steady.
@@ -208,6 +216,105 @@ public class PlayerGlow : MonoBehaviour
             m.flipX = false;
             Paint(m, Color.Lerp(_auraTint, Color.white, 0.5f) * new Color(1f, 1f, 1f, (1f - t) * _auraLevel), 2);
             m.transform.localPosition = foot + new Vector3(Mathf.Round(x) / ppu, y / ppu, 0f);
+        }
+    }
+
+    // ARcade: big on viking food - an aura of anger: a red flame rising off her shoulders over her
+    // head, flickering, and fire pixels streaming up out of it (yellow, orange, red, smoke) till it ends.
+    [Header("Rage (big on viking food)")]
+    public Color rageColor = new Color32(235, 30, 18, 255);
+    public Color rageHot = new Color32(255, 140, 40, 255);
+    public int rageEmbers = 18;
+    SpriteRenderer _rage;
+    readonly System.Collections.Generic.List<SpriteRenderer> _embers = new System.Collections.Generic.List<SpriteRenderer>();
+    float _rageLevel;
+
+    // Its neon bloom: her shape again in red, rings out from her edges, fading (like the skeletons').
+    readonly System.Collections.Generic.List<SpriteRenderer> _rageBloom = new System.Collections.Generic.List<SpriteRenderer>();
+    readonly System.Collections.Generic.List<float> _rageBloomAlpha = new System.Collections.Generic.List<float>();
+    public int rageBloomPixels = 3;
+
+    void RageBloom(bool on)
+    {
+        if (!on)
+        {
+            foreach (var r in _rageBloom) if (r.enabled) r.enabled = false;
+            return;
+        }
+        float px = 1f / _body.sprite.pixelsPerUnit;
+        if (_rageBloom.Count == 0)
+        {
+            for (int ring = 1; ring <= Mathf.Max(1, rageBloomPixels); ring++)
+            {
+                int dirs = ring == 1 ? 8 : 12;
+                float fade = Mathf.Pow(1f - (ring - 1f) / Mathf.Max(1, rageBloomPixels), 1.4f);
+                for (int i = 0; i < dirs; i++)
+                {
+                    float a = i * Mathf.PI * 2f / dirs;
+                    var r = Copy("Rage Bloom");
+                    r.transform.localPosition = new Vector3(Mathf.Round(Mathf.Cos(a) * ring) * px, Mathf.Round(Mathf.Sin(a) * ring) * px, 0f);
+                    _rageBloom.Add(r);
+                    _rageBloomAlpha.Add((ring == 1 ? 0.55f : 0.28f) * fade);
+                }
+            }
+        }
+        float flicker = 0.8f + 0.2f * Mathf.Sin(Time.time * 13f) * Mathf.Sin(Time.time * 5.1f);
+        var c = Color.Lerp(rageColor, rageHot, 0.2f + 0.2f * Mathf.Sin(Time.time * 7f));
+        for (int i = 0; i < _rageBloom.Count; i++)
+        {
+            var r = _rageBloom[i];
+            r.enabled = true;
+            r.sprite = _body.sprite;
+            r.flipX = _body.flipX;
+            r.flipY = _body.flipY;
+            Paint(r, new Color(c.r, c.g, c.b, _rageBloomAlpha[i] * flicker * _rageLevel), -2);
+        }
+    }
+
+    void Rage(bool on)
+    {
+        _rageLevel = Mathf.MoveTowards(_rageLevel, on ? 1f : 0f, Time.deltaTime / 0.35f);
+        RageBloom(_rageLevel > 0f && _body && _body.sprite && _body.enabled);
+        if (_rageLevel <= 0f || !_body || !_body.sprite)
+        {
+            if (_rage && _rage.enabled) { _rage.enabled = false; foreach (var e in _embers) e.enabled = false; }
+            return;
+        }
+        float ppu = _body.sprite.pixelsPerUnit;
+        if (!_rage)
+        {
+            _rage = Copy("Rage");
+            for (int i = 0; i < rageEmbers; i++) _embers.Add(Copy("Rage Ember " + i));
+        }
+        // Her drawn body (not her frame's canvas), in her sprite's own space: shoulders about
+        // two thirds up it, her head's top.
+        var drawn = RoadFoe.Drawn(_body);
+        var lo = _body.transform.InverseTransformPoint(drawn.min);
+        var hi = _body.transform.InverseTransformPoint(drawn.max);
+        float minY = Mathf.Min(lo.y, hi.y), maxY = Mathf.Max(lo.y, hi.y), midX = (lo.x + hi.x) * 0.5f;
+        float bodyH = maxY - minY, bodyW = Mathf.Abs(hi.x - lo.x);
+        float shoulders = minY + bodyH * 0.62f;
+        // (No flame behind her any more - it looked wrong as she ran; her neon bloom and the fire pixels are the rage.)
+        _rage.enabled = false;
+        // Fire pixels: each rises from across her shoulders and head, wavering, cooling as it goes.
+        for (int i = 0; i < _embers.Count; i++)
+        {
+            var e = _embers[i];
+            float life = 0.55f + 0.35f * Mathf.Repeat(i * 0.618f, 1f);
+            float t = Mathf.Repeat(Time.time / life + i * 0.37f, 1f);
+            float seed = Mathf.Floor(Time.time / life + i * 0.37f) * 13.1f + i * 7.3f;
+            float across = (Mathf.Repeat(Mathf.Sin(seed) * 43758.5f, 1f) - 0.5f) * bodyW * 1.2f;
+            float rise = t * bodyH * 0.75f;
+            float waver = Mathf.Sin((Time.time + i) * 9f) * 1.5f / ppu * t;
+            var c = t < 0.25f ? Color.Lerp(new Color(1f, 0.95f, 0.55f), rageHot, t / 0.25f)
+                : t < 0.65f ? Color.Lerp(rageHot, rageColor, (t - 0.25f) / 0.4f)
+                : Color.Lerp(rageColor, new Color(0.25f, 0.08f, 0.06f), (t - 0.65f) / 0.35f);
+            e.sprite = MoteSprite(ppu);
+            e.flipX = false;
+            Paint(e, c * new Color(1f, 1f, 1f, (1f - t * t) * _rageLevel), i % 3 == 0 ? -2 : 2);
+            float px = i % 4 == 0 ? 2f : 1f;   // (some fatter)
+            e.transform.localScale = Vector3.one * px;
+            e.transform.localPosition = new Vector3(Mathf.Round((midX + across + waver) * ppu) / ppu, Mathf.Round((shoulders + rise) * ppu) / ppu, 0f);
         }
     }
 

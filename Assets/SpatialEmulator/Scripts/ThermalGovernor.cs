@@ -2,10 +2,14 @@
 // drawing (never the emulator: the game keeps its full speed) as iOS reports
 // it warming up (NSProcessInfo's thermal state, Plugins/iOS/SEDevice.mm):
 //
-//   NOMINAL   full resolution, the camera's frame rate (ARSession matches it)
-//   FAIR      85% resolution, 30 frames a second, the camera at 30 too
-//   SERIOUS   70% resolution, the same (iOS slows the phone here)
-//   CRITICAL  60% resolution, the same
+//   NOMINAL   the camera's frame rate (ARSession matches it)
+//   FAIR      30 frames a second, the camera at 30 too
+//   SERIOUS   the same (iOS slows the phone here)
+//   CRITICAL  the same
+//
+// The resolution stays full at every step: drawn smaller and scaled up, the
+// games' pixel art lost rows and columns - thin HUD text went illegible (a
+// phone still warm from a build, till it cooled and the app was reopened).
 //
 // The game always runs at its own speed (MobileRetroDepthLayerStack keeps the
 // emulator's clock: at 30 drawn frames a second it runs two game frames a
@@ -14,9 +18,8 @@
 // work; it's switched only as the step changes - each switch is a moment's
 // hitch in the camera.
 //
-// Resolution is URP's render scale (the picture drawn smaller, then scaled
-// up to the screen). It steps down as soon as the phone's hotter, and back
-// up only once it's stayed cooler for a while, so it doesn't see-saw.
+// It steps down as soon as the phone's hotter, and back up only once it's
+// stayed cooler for a while, so it doesn't see-saw.
 // Nothing in the Editor (it would change the URP asset on disk). Made at
 // run time.
 
@@ -42,7 +45,7 @@ namespace SpatialEmulator
         public static int Heat => -1;
 #endif
 
-        static readonly float[] Scale = { 1f, 0.85f, 0.7f, 0.6f };
+        static readonly float[] Scale = { 1f, 1f, 1f, 1f };   // (the render scale at each step: kept full, above)
         static readonly int[] Fps = { 0, 30, 30, 30 };   // (0: the camera's own)
         const int CoolCameraFps = 30;
         const float CoolSeconds = 30f;   // cooler this long before stepping back up

@@ -26,7 +26,7 @@ public static class PortalBuilder
     const string DemoPrefab = "Assets/PitDemo/PIT DEMO EXPORT/PitDemo.prefab";
     const string Level2Prefab = "Assets/PitDemo/PIT DEMO EXPORT/LEVEL 2.prefab";
     const string OpenSound = "Assets/PitDemo/AUDIO/Door IN Fantasy Word1.wav";
-    const string EnterSound = "Assets/PitDemo/AUDIO/Retro Fireball Magic Hyperspace Teleport Arrives.wav";
+    const string EnterSound = "Assets/PitDemo/AUDIO/Portal Teleport.wav";
     // The art's bottom row, 3 px up from the frame's.
     const float PivotY = 3f / 128f;
 

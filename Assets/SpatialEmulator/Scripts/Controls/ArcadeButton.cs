@@ -38,6 +38,7 @@ namespace SpatialEmulator.Controls
 
         bool _down;
         bool _coinPending;
+        bool _waking;   // (this touch woke COIN/START: it doesn't press)
         float _downAt;
         Color _normalColor;
         Vector3 _normalScale;
@@ -60,6 +61,9 @@ namespace SpatialEmulator.Controls
         /// inserted: a hold that opened the player chooser doesn't count).
         public int pressCount { get; private set; }
 
+        /// A press that came from elsewhere (a controller's coin at CONTINUE?): its feedback plays as if tapped.
+        public void NotePress() => pressCount++;
+
         void Awake()
         {
             if (visual) _normalColor = visual.color;
@@ -71,6 +75,7 @@ namespace SpatialEmulator.Controls
         void OnDisable()
         {
             _coinPending = false;
+            _waking = false;
             SetHeld(false);
         }
 
@@ -83,6 +88,15 @@ namespace SpatialEmulator.Controls
 
         public void SetHeld(bool held)
         {
+            // COIN or START faded down mid-game (CoinStartGuard): the touch only wakes them, its release too is let go.
+            if (_waking) { if (!held) _waking = false; return; }
+            if (held && !_down && CoinStartGuard.Asleep(button))
+            {
+                _waking = true;
+                CoinStartGuard.Wake();
+                Haptics.Play(Haptics.Kind.Light);
+                return;
+            }
             if (held == _down) return;
             _down = held;
             if (held) Haptics.Play(Haptics.Kind.Tick);   // a tick under the thumb

@@ -13,11 +13,16 @@ Shader "SpatialEmulator/LayerUnlit"
         _MainTex ("Texture", 2D) = "black" {}
         _FlipV ("Flip V", Float) = 1
         _Crt ("CRT filter", Float) = 0
+        // 5 (SrcAlpha): straight alpha, as MAME's layers and ENDLESS KNIGHT's;
+        // 1 (One): premultiplied - THE TIME CRYSTAL's, whose glows, trails and
+        // halos are drawn soft into their layer (a sprite's colour lands
+        // there already times its alpha), so they add light like a bloom.
+        _SrcBlend ("Src Blend", Float) = 5
     }
     SubShader
     {
         Tags { "Queue"="Transparent" "RenderType"="Transparent" "IgnoreProjector"="True" }
-        Blend SrcAlpha OneMinusSrcAlpha
+        Blend [_SrcBlend] OneMinusSrcAlpha
         ZWrite Off
         Cull Off
         Lighting Off
@@ -33,6 +38,7 @@ Shader "SpatialEmulator/LayerUnlit"
             float4 _MainTex_TexelSize;
             float _FlipV;
             float _Crt;
+            float _LayerDark;   // (global, 0 unless set: a level change fading in from black - MobileRetroDepthLayerStack)
 
             struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; };
             struct v2f { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
@@ -72,7 +78,7 @@ Shader "SpatialEmulator/LayerUnlit"
 
             fixed4 frag (v2f i) : SV_Target
             {
-                if (_Crt < 0.5) return tex2D(_MainTex, i.uv);
+                if (_Crt < 0.5) { fixed4 p = tex2D(_MainTex, i.uv); p.rgb *= 1.0 - _LayerDark; return p; }
 
                 // The tube's glass bends the picture: pushed out toward the
                 // corners (every layer the same, so they stay lined up), and
@@ -114,6 +120,7 @@ Shader "SpatialEmulator/LayerUnlit"
 
                 c.rgb = (c.rgb * scan * mask + glow * 0.3) * vignette * flicker * 1.45;
                 c.a *= rounded;
+                c.rgb *= 1.0 - _LayerDark;
                 return c;
             }
             ENDCG

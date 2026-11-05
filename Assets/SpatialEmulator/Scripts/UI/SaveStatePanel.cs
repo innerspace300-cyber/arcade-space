@@ -6,7 +6,8 @@
 // The built-in demo (PitDemoGame) gets the same panel, but it doesn't save:
 // titled DEMO, no SAVE button or saves; CONTROLS shows its HOW TO PLAY box,
 // and RESTART - after the witch's warning (DemoDialogue) - wipes the hi
-// score and progress and starts over from the opening dialogue.
+// score and progress and starts over from the opening dialogue. THE TIME
+// CRYSTAL (TimeCrystalGame) gets DEMO and RESTART (tap it twice) only.
 //
 // Lives in ARCabinet.prefab as a world-space canvas (built by
 // GamePickerBuilder); it sits just right of the screen and follows the
@@ -56,6 +57,28 @@ namespace SpatialEmulator.UI
         [Tooltip("The panel's size against the prefab's (it and the MENU panel mirroring it): bigger, easier to tap in AR.")]
         public float sizeScale = 2f;
 
+        /// The side panels (this and the MENU one, GamesPanel) shown: a placed
+        /// cabinet starts with them folded away (CabinetOrientation), so it's
+        /// just the game; the three bars by the frame's top left corner
+        /// (GamesPanel) open and fold them.
+        public static bool SideMenusOpen;
+
+        /// The MENU panel's height, in canvas units (GamesPanel measures it;
+        /// 0 until it has): both panels are scaled so it's as tall as the
+        /// frame. (LOCK is apart, under the frame's bottom left corner.)
+        public static float MenuGroupHeight;
+
+        /// Shown or folded away - still laid out (so it can be measured), just
+        /// invisible and untappable.
+        public static void Fade(GameObject go, bool show)
+        {
+            var group = go.GetComponent<CanvasGroup>();
+            if (!group) group = go.AddComponent<CanvasGroup>();
+            float alpha = show ? 1f : 0f;
+            if (group.alpha != alpha) group.alpha = alpha;
+            group.interactable = group.blocksRaycasts = show;
+        }
+
         readonly Dictionary<string, Texture2D> _thumbs = new Dictionary<string, Texture2D>();
         readonly List<RaycastResult> _hits = new List<RaycastResult>();
         List<SaveState> _saves = new List<SaveState>();
@@ -73,7 +96,8 @@ namespace SpatialEmulator.UI
 
         // What the demo keeps between runs: RESTART wipes it.
         static readonly string[] DemoProgressKeys =
-            { "EndlessKnight.HiScore", "EndlessKnight.FruitComplete", "EndlessKnight.Spell", Demo.DemoDialogue.SeenKey, LevelPortal.OpenKey };
+            { "EndlessKnight.HiScore", "EndlessKnight.FruitComplete", "EndlessKnight.Spell", Demo.DemoDialogue.SeenKey, Demo.DemoDialogue.LevelSeenKey + "2", Demo.DemoDialogue.LevelSeenKey + "3", Demo.DemoDialogue.LevelSeenKey + "4", LevelPortal.OpenKey, LevelPortal.OpenKey + "2", LevelPortal.OpenKey + "3", LevelPortal.OpenKey + "4",
+              "EndlessKnight.FruitComplete2", "EndlessKnight.FruitComplete3", "EndlessKnight.FruitComplete4" };
 
         void Awake()
         {
@@ -141,12 +165,13 @@ namespace SpatialEmulator.UI
         void Update()
         {
             if (!canvas.worldCamera) canvas.worldCamera = Camera.main;
-            bool running = LibretroCore.IsRunning || Demo.PitDemoGame.IsRunning;
+            bool running = LibretroCore.IsRunning || Demo.LayeredDemo.AnyRunning;
             if (content.activeSelf != running) content.SetActive(running);
-            if (running && (_game != GameSelection.Current || _demo != Demo.PitDemoGame.IsRunning)) Refresh();
+            Fade(content, SideMenusOpen);
+            if (running && (_game != GameSelection.Current || _demo != Demo.LayeredDemo.AnyRunning)) Refresh();
             PlaceBesideScreen();
             if (_restartArmedUntil > 0f && Time.unscaledTime > _restartArmedUntil) DisarmRestart();
-            if (_demo && _restartArmedUntil < 0f)
+            if (_demo && Demo.PitDemoGame.IsRunning && _restartArmedUntil < 0f)
             {
                 string label = Demo.DemoDialogue.AskingRestart ? "SURE?" : "RESTART";
                 if (restartLabel.text != label) restartLabel.text = label;
@@ -185,15 +210,17 @@ namespace SpatialEmulator.UI
         }
         Vector3? _corner;
         int _cornerVersion, _placedForCorner = -1;
+        float _placedForGroup = -1f;
 
         void PlaceBesideScreen()
         {
             if (!stack) return;
             if (frame)
             {
-                if (_placedForFrame == frame.Version && _placedForCorner == _cornerVersion) return;
+                if (_placedForFrame == frame.Version && _placedForCorner == _cornerVersion && _placedForGroup == MenuGroupHeight) return;
                 _placedForFrame = frame.Version;
                 _placedForCorner = _cornerVersion;
+                _placedForGroup = MenuGroupHeight;
             }
             else
             {
@@ -204,6 +231,9 @@ namespace SpatialEmulator.UI
             float halfWidth = frame ? frame.OuterHalfWidth : stack.screenHeight * stack.PictureAspect * stack.pixelAspect * 0.5f;
             var rect = (RectTransform)transform;
             rect.localScale = _baseScale * grow;
+            // Beside the frame: MENU and LOCK as tall as the frame (this one the same scale).
+            if (frame && _corner == null && MenuGroupHeight > 1f)
+                rect.localScale = _baseScale * (2f * frame.OuterHalfHeight / MenuGroupHeight / _baseScale.y);
             float panelHalf = rect.rect.width * rect.localScale.x * 0.5f;
             Vector3 center = stack.transform.localPosition;
             float z = frame ? frame.transform.localPosition.z : 0f;
@@ -211,21 +241,22 @@ namespace SpatialEmulator.UI
             float y = frame ? center.y + frame.OuterHalfHeight - rect.rect.height * rect.localScale.y * (1f - rect.pivot.y) : center.y;
             rect.localPosition = new Vector3(center.x + halfWidth + gap * grow + panelHalf, y, z);
             if (_corner is Vector3 corner)
-                rect.localPosition = new Vector3(corner.x + panelHalf, corner.y - rect.rect.height * rect.localScale.y * (1f - rect.pivot.y), corner.z);
+                // (Down a header's height: level with MENU across the cabinet, under its three bars.)
+                rect.localPosition = new Vector3(corner.x + panelHalf, corner.y - (rect.rect.height * (1f - rect.pivot.y) + GamesPanel.CabinetHeader) * rect.localScale.y, corner.z);
         }
 
         void Refresh()
         {
             HideDelete();
             _game = GameSelection.Current;
-            _demo = Demo.PitDemoGame.IsRunning;
+            _demo = Demo.LayeredDemo.AnyRunning;
             _saves = _demo ? new List<SaveState>() : SaveStates.List(_game);
             saveButton.transform.parent.gameObject.SetActive(!_demo);   // its line
             if (_title == null && content.transform.Find("Title")) _title = content.transform.Find("Title").GetComponent<TMP_Text>();
             if (_titleDefault == null && _title) _titleDefault = _title.text;
-            if (_title) _title.text = _demo ? "DEMO" : _titleDefault;
+            if (_title) ShowTitle(_demo ? DemoName : _titleDefault);
             countLabel.gameObject.SetActive(!_demo);
-            if (_controlsLine) _controlsLine.SetActive(_demo);
+            if (_controlsLine) _controlsLine.SetActive(_demo && Demo.PitDemoGame.IsRunning);   // (ENDLESS KNIGHT's HOW TO PLAY)
             if (_demoRule) _demoRule.SetActive(_demo);
             countLabel.text = _saves.Count == 1 ? "1 SAVE" : $"{_saves.Count} SAVES";
             emptyLabel.SetActive(!_demo && _saves.Count == 0);
@@ -239,7 +270,25 @@ namespace SpatialEmulator.UI
             }
         }
 
-        static string Describe(SaveState save)
+        // A demo's panel is titled with its name (THE TIME CRYSTAL, ENDLESS KNIGHT).
+        internal static string DemoName =>
+            Demo.TimeCrystalGame.IsRunning ? "THE TIME\nCRYSTAL" :
+            Demo.PitDemoGame.IsRunning ? "ENDLESS\nKNIGHT" : "DEMO";
+
+        float _titleSize = -1f;
+
+        // At the title's own size, or smaller if its widest line wouldn't fit across.
+        void ShowTitle(string text)
+        {
+            if (_titleSize < 0f) _titleSize = _title.fontSize;
+            _title.text = text;
+            _title.fontSize = _titleSize;
+            float room = ((RectTransform)content.transform).rect.width - 10f;   // (the panel's padding)
+            float wide = _title.GetPreferredValues(text).x;
+            if (room > 0f && wide > room) _title.fontSize = _titleSize * room / wide;
+        }
+
+        internal static string Describe(SaveState save)
         {
             var when = save.savedAt;
             var today = System.DateTime.Now.Date;
@@ -270,7 +319,7 @@ namespace SpatialEmulator.UI
 
         void OnRestartTapped()
         {
-            if (!LibretroCore.IsRunning && !Demo.PitDemoGame.IsRunning) return;
+            if (!LibretroCore.IsRunning && !Demo.LayeredDemo.AnyRunning) return;
             if (Demo.PitDemoGame.IsRunning)
             {
                 // The witch asks first (A yes, B no; RESTART again is a yes).
@@ -284,6 +333,26 @@ namespace SpatialEmulator.UI
                 return;
             }
             DisarmRestart();
+            MenuPause.CloseMenus();   // (the side menus fold away; the restarted game plays)
+            if (Demo.TimeCrystalGame.IsRunning)
+            {
+                TimeCrystal.TcStory.PlayNext = true; Demo.TimeCrystalGame.RestartRequested = true;   // (a new game; the hi score stays)
+                Message("Game restarted");
+                return;
+            }
+            LibretroCore.Reset();
+            PlayerSlots.NoteRestart();
+            Message("Game restarted");
+        }
+
+        /// RESTART from elsewhere (the menu's, in full screen), already confirmed:
+        /// ENDLESS KNIGHT asks through the witch as here; THE TIME CRYSTAL starts
+        /// a new game; a romset resets, like the board's switch.
+        public static void RestartGame()
+        {
+            if (Demo.PitDemoGame.IsRunning) { Demo.DemoDialogue.AskRestart(RestartDemo); return; }
+            if (Demo.TimeCrystalGame.IsRunning) { Games.GameCenter.Submit(Games.GameCenter.CurrentScore, Games.GameCenter.TimeCrystalLeaderboardId); TimeCrystal.TcStory.PlayNext = true; Demo.TimeCrystalGame.RestartRequested = true; Message("Game restarted"); return; }
+            if (!LibretroCore.IsRunning) return;
             LibretroCore.Reset();
             PlayerSlots.NoteRestart();
             Message("Game restarted");
@@ -298,6 +367,7 @@ namespace SpatialEmulator.UI
             PlayerPrefs.Save();
             Demo.PitDemoGame.ResetLevels();   // back to the first level
             DeathRespawn.RestartRequested = true;
+            MenuPause.CloseMenus();   // (the menu it was asked from folds away; the new run plays)
             Message("Game restarted");
         }
 

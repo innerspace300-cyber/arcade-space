@@ -499,7 +499,7 @@ namespace SpatialEmulator.Editor
             SettingsRow(list, compact, "RESUME SAVES", "Load a game's newest save when it starts", "OFF", out var resumeButton);
             settings.resumeButton = resumeButton;
             settings.resumeValue = resumeButton.GetComponentInChildren<TMP_Text>();
-            SettingsRow(list, compact, "GAMES IN AR", "Show your games in the cabinet's frame", "OFF", out var pickerInARButton);
+            SettingsRow(list, compact, "GAMES IN AR", "Show your games list in the cab", "OFF", out var pickerInARButton);
             settings.pickerInARButton = pickerInARButton;
             settings.pickerInARValue = pickerInARButton.GetComponentInChildren<TMP_Text>();
             var spacingRow = SettingsRow(list, compact, "LAYER SPACING", "Default", null, out _);

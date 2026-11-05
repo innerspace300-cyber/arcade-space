@@ -19,13 +19,14 @@ public class FruitRain : MonoBehaviour
     float _start, _spawned;
 
     /// Rain these on the running demo, with `win` playing and `bonus` points.
-    public static void Play(Sprite[] fruit, AudioClip win, int bonus)
+    public static void Play(Sprite[] fruit, AudioClip win, int bonus, float sizeScale = 1f)
     {
         var demo = SpatialEmulator.Demo.PitDemoGame.Running;
         if (!demo || fruit == null || fruit.Length == 0) return;
         var rain = new GameObject("FRUIT RAIN").AddComponent<FruitRain>();
         rain.transform.SetParent(demo.transform, false);
         rain.fruit = fruit;
+        rain.size *= sizeScale;
         PitAudio.PlayClip(win);
         if (bonus > 0) { PitScoreManager.Instance?.AddScore(bonus); TreasureChest.BonusPoints += bonus; }
     }
@@ -57,7 +58,7 @@ public class FruitRain : MonoBehaviour
         go.layer = LayerMask.NameToLayer(SpatialEmulator.Demo.PitDemoGame.HudLayer);
         go.transform.SetParent(transform, false);
         var p = _cam.transform.position;
-        float scale = Mathf.Round(Random.Range(size.x, size.y));
+        float scale = size.x >= 1f ? Mathf.Round(Random.Range(size.x, size.y)) : Random.Range(size.x, size.y);   // (whole pixels, unless smaller than the art)
         go.transform.position = new Vector3(p.x + Random.Range(-halfWidth, halfWidth),
             p.y + _cam.orthographicSize + 16f * pixel * scale, p.z + 2f);
         go.transform.localScale = Vector3.one * (pixel * sprite.pixelsPerUnit * scale);
