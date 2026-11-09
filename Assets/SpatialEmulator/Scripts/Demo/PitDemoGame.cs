@@ -202,6 +202,7 @@ namespace SpatialEmulator.Demo
             Running = null;
             Time.timeScale = 1f;
             PitInput.Move = Vector2.zero;
+            PitAudio.StopAll();   // (its one-shots too: none held to play on under the next game)
             // Spawned enemies and items live at the scene root, not under the demo.
             if (game._enemies) game._enemies.ClearActiveObjects();
             if (game._collectables) game._collectables.ClearActiveCollectables();
@@ -710,6 +711,7 @@ namespace SpatialEmulator.Demo
             float x = (Held(RetroPadButton.Right) ? 1f : 0f) - (Held(RetroPadButton.Left) ? 1f : 0f);
             float y = (Held(RetroPadButton.Up) ? 1f : 0f) - (Held(RetroPadButton.Down) ? 1f : 0f);
             PitInput.Move = new Vector2(x, y) * GaitSpeed(ArcadeInput.Push);
+            NothingThatWay(x);
 
             if (_player)
             {
@@ -724,6 +726,19 @@ namespace SpatialEmulator.Demo
         }
 
         static bool Held(RetroPadButton button) => ArcadeInput.IsPressed((uint)button);
+
+        // Running left (the wrong way) for LeftNagSeconds without letting go: the witch calls her back.
+        const float LeftNagSeconds = 10f;
+        float _leftFor;
+
+        void NothingThatWay(float x)
+        {
+            if (x >= 0f || !_player) { _leftFor = 0f; return; }
+            _leftFor += Time.deltaTime;
+            if (_leftFor < LeftNagSeconds) return;
+            _leftFor = 0f;
+            DemoDialogue.ShowNothingThatWay();
+        }
 
         // C casts its spell (SpellWheel.Current) when a tap lets go; held
         // for SpellWheel.HoldSeconds it opens the spell wheel instead, and

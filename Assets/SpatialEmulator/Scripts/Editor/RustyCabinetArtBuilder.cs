@@ -5,7 +5,7 @@
 // from its face, its texture the picture cropped to fill the face and cut to
 // the face's outline (alpha: the body mesh's triangles on that face, so the
 // side's notch and the front's coin door stay the cabinet's own). The
-// marquee gets its name, 弾幕天国, over a strip of the picture, lit; the
+// marquee gets its name, 弾丸地獄天国, over a strip of the picture, lit; the
 // body's made clean black metal (CleanBody). Rebuilt by
 // Tools > ARcade > Build Rusty Cabinet Art (replaces the old quads).
 
@@ -40,7 +40,7 @@ namespace SpatialEmulator.EditorTools
             new Face { name = "Back", source = "CabinetArt_Tree.jpg", normal = Vector3.back, up = Vector3.up, anchorX = 0.3f, anchorY = 0.5f },   // (the tree)
             new Face { name = "Front", source = "CabinetArt_Tree.jpg", normal = Vector3.forward, up = Vector3.up, anchorX = 0.3f, anchorY = 0.5f },
             new Face { name = "Top", source = "CabinetArt_Tree.jpg", normal = Vector3.up, up = Vector3.back, anchorX = 0.5f, anchorY = 0.5f },   // (its top: toward the back, seen from the front)
-            // The marquee: its name, 弾幕天国, over a strip of the picture
+            // The marquee: its name, 弾丸地獄天国, over a strip of the picture
             // (CabinetArt_Marquee.png, made from it), lit.
             new Face { name = "Marquee", source = "CabinetArt_Marquee.png", normal = new Vector3(0f, 0.2f, 0.98f).normalized, up = Vector3.up, pixelsPerMetre = 2400f, glow = true, anchorX = 0.5f, anchorY = 0.5f },
         };
@@ -229,13 +229,11 @@ namespace SpatialEmulator.EditorTools
                     material.DisableKeyword("_NORMALMAP");
                     material.DisableKeyword("_METALLICSPECGLOSSMAP");
                     material.DisableKeyword("_EMISSION");
-                    if (face.glow)
-                    {
-                        material.SetTexture("_EmissionMap", texture);
-                        material.SetColor("_EmissionColor", Color.white * 0.55f);
-                        material.EnableKeyword("_EMISSION");
-                        material.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
-                    }
+                    // Every face glows with its own picture, the marquee the most.
+                    material.SetTexture("_EmissionMap", texture);
+                    material.SetColor("_EmissionColor", Color.white * (face.glow ? 1.6f : 0.6f));
+                    material.EnableKeyword("_EMISSION");
+                    material.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
                     material.SetTexture("_BaseMap", texture);
                     material.SetTexture("_MainTex", texture);
                     material.SetTextureScale("_BaseMap", Vector2.one);

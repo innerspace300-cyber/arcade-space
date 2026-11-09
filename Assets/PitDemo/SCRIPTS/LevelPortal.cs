@@ -222,18 +222,16 @@ public class LevelPortal : MonoBehaviour
             if (onward) { _gatesComing++; StartCoroutine(Waiting()); }
         }
         StartCoroutine(MarkLaidOut());
-        // The secret one too - also on a level she's just come into by portal.
-        if (nextLevel && PlayerPrefs.GetInt(OpenedKey, 0) != 1) StartCoroutine(Secret());
-        if (nextLevel && level == 1) StartCoroutine(ShortcutsLater());   // (level 1: every level's gate, behind it)
     }
 
     void OnEnable() { FruitTracker.AllCollected += OnAllFruit; CrystalPrize.Collected += OnCrystal; }
     void OnDisable() { FruitTracker.AllCollected -= OnAllFruit; CrystalPrize.Collected -= OnCrystal; }
 
-    // ARcade: the dark crystal's taken (the final dragon's): the witch comes, tells her what it was, and sends her
+    // ARcade: the dark crystal's fed on all she gathered (the final dragon's): the witch comes, tells her what it was, and sends her
     // back to the beginning - her lightning on the knight, and level 1 again.
     void OnCrystal() { if (_witch && _player && !_ending) StartCoroutine(Ending()); }
     bool _ending;
+    const float EndingBoltFade = 0.25f;   // (the knight's gone this long before the ending's bolt ends)
     IEnumerator Ending()
     {
         _ending = true;
@@ -250,14 +248,15 @@ public class LevelPortal : MonoBehaviour
         witch.enabled = true;
         var idle = StartCoroutine(Idle(witch));
         yield return new WaitForSeconds(0.8f);
-        DemoDialogue.WitchSays("THAT WAS THE DARK TIME CRYSTAL! FIND A WAY TO DESTROY THEM!", "I HAVE TO SEND YOU BACK TO THE BEGINNING!");
+        DemoDialogue.ShowEnding();
         while (DemoDialogue.Showing) yield return null;
-        // Her lightning, on the knight.
+        // Her lightning on the knight, as the knight casts the magic sword: she's seen through the bolt till it fades.
         StopCoroutine(idle);
+        _player.CastSwordForShow();
         var cast = _witch.castFrames;
         float castLength = cast != null && cast.Length > 0 ? cast.Length / _witch.castFps : 0f;
         // (as a death's: the blue strike on her feet, her gone the moment it hits, the bolt played out)
-        bool struck = false;
+        bool struck = false, hit = false;
         float impactAt = float.MaxValue, boltEnd = float.MaxValue;
         for (float t = 0f; t < castLength || !struck || Time.time < boltEnd; t += Time.deltaTime)
         {
@@ -271,17 +270,19 @@ public class LevelPortal : MonoBehaviour
                 impactAt = Time.time + _witch.Impact(bolt);
                 boltEnd = Time.time + (bolt ? bolt.frames.Length / bolt.fps : 0f);
             }
-            if (struck && !_hidden && Time.time >= impactAt)
+            if (struck && !hit && Time.time >= impactAt)
             {
-                _hidden = true;
+                hit = true;
                 SpatialEmulator.Haptics.Play(SpatialEmulator.Haptics.Kind.Heavy);
             }
+            if (struck && Time.time >= boltEnd - EndingBoltFade) _hidden = true;
             yield return null;
         }
         _hidden = true;
         yield return new WaitForSeconds(_witch.vanishTime);
         DeathRespawn.ArriveByLightning();   // (back at the campfire in her strike, as after a death)
         CrystalPrize.Coming = false;
+        DemoDialogue.ReplayOpening = true;   // (the new knight gets the witch's welcome back)
         PitDemoGame.GoToLevel(null, 1);
     }
 
@@ -400,7 +401,7 @@ public class LevelPortal : MonoBehaviour
         Portal portal = null;
         var cast = _witch.castFrames;
         float castLength = cast != null && cast.Length > 0 ? cast.Length / _witch.castFps : 0f;
-        bool struck = false;
+        bool struck = false, hit = false;
         float impactAt = float.MaxValue;
         for (float t = 0f; t < castLength || portal == null; t += Time.deltaTime)
         {
@@ -471,7 +472,6 @@ public class LevelPortal : MonoBehaviour
         s_arriveEmbers = portal.embers;
         s_arriveEmberGlow = portal.emberGlow;
         s_arriveLook = (portal.gateGlowColor, portal.swirlTint, portal.fairies, portal.fairyFrames, portal.fairyCount, portal.activateFrames, portal.idleFrames, portal.closeFrames, portal.backlight, portal.backlightArt, portal.motes, portal.motesColor);
-        if (portal.testDragon) EndlessKnightDirector.TestFinalDragon = true;
         if (portal.back)
         {
             // Back to the level before: she comes out of its way on (Arrive), left open.
@@ -495,66 +495,6 @@ public class LevelPortal : MonoBehaviour
         var portal = Open(BodyX - (HomeGateArt ? BackGap : 0f), _player.transform.position.z, true, gate: gate);   // (left of this level's own torii)
         while (!portal.IsOpen) yield return null;
         yield return StepIn(portal);
-    }
-
-    // ARcade (for now): a secret portal to the next level, already open,
-    // SecretFrames of road to the left of where she starts - walk back to
-    // it, UP in front of it. No fruit round it, no opening sound.
-    public const float SecretFrames = 100f;
-
-    IEnumerator Secret()
-    {
-        for (int i = 0; i < 3; i++) yield return null;   // the demo lays itself out first
-        while (EndlessKnightDirector.RoadUnitsPerFrame <= 0f) yield return null;
-        while (_hidden) yield return null;   // (after she's stepped out of the portal she came through)
-        if (!_bodySprite) yield break;
-        var portal = Open(BodyX - SecretFrames * EndlessKnightDirector.RoadUnitsPerFrame, _player.transform.position.z, false, quiet: true, gate: gate);
-        while (!portal.IsOpen) yield return null;
-        yield return StepIn(portal);
-    }
-
-    // ARcade: on level 1, every level's gate in a row behind its own secret one - level 2's red
-    // bamboo torii on to level 3, level 3's black gate on to level 4, ... - each its own look,
-    // each straight to its level.
-    public const float ShortcutSpacingFrames = 48f;
-
-    IEnumerator ShortcutsLater()
-    {
-        for (int i = 0; i < 3; i++) yield return null;   // the demo lays itself out first
-        while (EndlessKnightDirector.RoadUnitsPerFrame <= 0f) yield return null;
-        while (_hidden) yield return null;
-        if (!_bodySprite) yield break;
-        Shortcuts(BodyX - SecretFrames * EndlessKnightDirector.RoadUnitsPerFrame);
-    }
-
-    void Shortcuts(float firstX)
-    {
-        var from = nextLevel ? nextLevel.GetComponentInChildren<LevelPortal>(true) : null;
-        for (int k = 1; from && from.nextLevel && from.gate && k < 8; k++)
-        {
-            var portal = Open(firstX - k * ShortcutSpacingFrames * EndlessKnightDirector.RoadUnitsPerFrame, _player.transform.position.z, false, quiet: true, gate: from.gate, lookOf: from);
-            portal.toLevel = from.nextLevel;
-            portal.toLevelNumber = from.level + 1;
-            StartCoroutine(OpenThenStepIn(portal));
-            from = from.nextLevel.GetComponentInChildren<LevelPortal>(true);
-        }
-        // TESTING (goes with the secret portals): one more, purple, straight to level 4's final dragon.
-        if (level < s_prefabs.Length && s_prefabs.Length > 4 && s_prefabs[4])
-        {
-            var last = s_prefabs[4].GetComponentInChildren<LevelPortal>(true);
-            var test = Open(firstX - 4 * ShortcutSpacingFrames * EndlessKnightDirector.RoadUnitsPerFrame, _player.transform.position.z, false, quiet: true, gate: last ? last.gate : null, lookOf: last);
-            test.swirlTint = new Color(0.75f, 0.3f, 1f, 1f);
-            test.toLevel = s_prefabs[4];
-            test.toLevelNumber = 4;
-            test.testDragon = true;
-            StartCoroutine(OpenThenStepIn(test));
-        }
-    }
-
-    IEnumerator OpenThenStepIn(Portal portal)
-    {
-        while (portal && !portal.IsOpen) yield return null;
-        if (portal) yield return StepIn(portal);
     }
 
     // Her shrinking or growing about her middle, and fading: a stand-in -
@@ -625,6 +565,9 @@ public class LevelPortal : MonoBehaviour
     IEnumerator Arrive()
     {
         for (int i = 0; i < 3; i++) yield return null;   // the demo lays itself out first
+        // ARcade: not behind the game list (a cabinet just placed opens on it) - no portal, no sound,
+        // till ENDLESS KNIGHT's picked and the list's gone (another game picked: the demo goes, and this with it).
+        while (SpatialEmulator.UI.GamePicker.IsOpen) yield return null;
         if (!_bodySprite) { _arrivePlaced = true; _gatesComing = 0; yield break; }
         EndlessKnightDirector.Hold = true;
         PitDemoGame.ControlsLocked = true;
@@ -816,7 +759,7 @@ public class LevelPortal : MonoBehaviour
         if (gate) withFruit = false;   // (a gate stands alone)
         if (gate == look.gate && gate)
         {
-            // The level's own gate (this one's, or a shortcut's level's), its own look.
+            // The level's own gate, its own look.
             portal.gateGlowColor = look.gateGlow;
             portal.swirlTint = look.gateSwirlTint;
             portal.fairies = look.gateFairies;
@@ -870,7 +813,7 @@ public class LevelPortal : MonoBehaviour
     public class Portal : MonoBehaviour
     {
         public LevelPortal owner;
-        /// Where it goes (none: the owner's next level) - level 1's shortcuts on to levels 3 and 4.
+        /// Where it goes (none: the owner's next level).
         public GameObject toLevel;
         public bool back;   // (the way back to the level before)
         /// An 80s retro grid filling its doorway, rolling (clear: none) - level 2's way back to level 1.
@@ -896,7 +839,6 @@ public class LevelPortal : MonoBehaviour
         }
         /// Already open as it's made (a gate there as the level starts: none seen opening - Open).
         public bool openAtOnce;
-        public bool testDragon;   // (testing: to level 4's final dragon)
         public int toLevelNumber;
         public Sprite[] fruit;
         /// A gate (owner.gate's art) round the swirl: standing whole from the start, the swirl and its warm glow opening inside it.

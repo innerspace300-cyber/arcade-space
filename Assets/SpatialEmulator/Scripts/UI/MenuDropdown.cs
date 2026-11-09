@@ -1,6 +1,6 @@
 // MenuDropdown.cs — the screen's menu: three bars top left (no keycap),
 // across from the Settings gear (and faded like it), that pause the game and drop down the MENU panel's
-// keys - GAMES, FRAME, FULL, CAB, CAP, LOCK; in full screen GAMES, AR,
+// keys - GAMES, FRAME, FULL, CAB, CAP (LOCK is by the cabinet's own menu, GamesPanel); in full screen GAMES, AR,
 // CAP and, for a game that saves, SAVES (SavesWindow) - on the screen, so they're in
 // reach in any mode, full screen too (where FULL reads AR: back to AR, as the
 // old AR key did). It takes the place of the screen's own GAMES and AR keys
@@ -39,10 +39,9 @@ namespace SpatialEmulator.UI
         CabinetManipulator _manipulator;
         GameObject _menuKey, _blocker, _list;
         Sprite _up, _down;
-        Image _frame, _cab, _lock;
-        TMP_Text _fullLabel, _lockLabel;
+        Image _frame, _cab;
+        TMP_Text _fullLabel;
         GameObject _fullKey;   // (AR / FULL: gone on a TV or in a Kishi / Backbone - TvOutput - full screen only there)
-        Button _lockButton;
         readonly System.Collections.Generic.List<RectTransform> _rows = new System.Collections.Generic.List<RectTransform>();
         GameObject[] _arOnly;   // FRAME, CAB, LOCK: nothing to do in full screen
         GameObject[] _saveKeys;   // SAVE, SAVES: in full screen, for a game that saves (not the demo)
@@ -112,7 +111,13 @@ namespace SpatialEmulator.UI
             var keycap = menu.GetComponent<Image>();
             if (keycap) keycap.color = Color.clear;
             menu.GetComponent<Button>().transition = Selectable.Transition.None;
-            menu.gameObject.AddComponent<CanvasGroup>().alpha = 0.22f;
+            menu.gameObject.AddComponent<CanvasGroup>().alpha = 0.22f * 1.35f;
+            // Its own canvas, over every game's and HUD's (the on-top layers, Time Crystal's
+            // overlays, the controls) - under only the windows (35+) - so nothing hides it.
+            var own = menu.gameObject.AddComponent<Canvas>();
+            own.overrideSorting = true;
+            own.sortingOrder = MenuOrder;
+            menu.gameObject.AddComponent<GraphicRaycaster>();
             _menuKey = menu.gameObject;
 
             // Taps anywhere else are caught (the game's paused: its controls, under this, do nothing) -
@@ -161,11 +166,8 @@ namespace SpatialEmulator.UI
             // (SAVE and RESTART are in the side section, on the right.)
             var saves = Row(Key(list, "SAVES", new Vector2(KeyWidth, height), SavesWindow.Open));
             _saveKeys = new[] { saves.gameObject };
-            var lockKey = Row(Key(list, "LOCK", new Vector2(KeyWidth, height), ToggleLock));
-            _lock = lockKey.GetComponent<Image>();
-            _lockLabel = lockKey.GetComponentInChildren<TMP_Text>(true);
-            _lockButton = lockKey.GetComponent<Button>();
-            _arOnly = new[] { _frame.gameObject, _cab.gameObject, lockKey.gameObject };
+            // (LOCK isn't here: it's by the 3D cabinet's own menu, GamesPanel.)
+            _arOnly = new[] { _frame.gameObject, _cab.gameObject };
 
             BuildSide(root, y);
 
@@ -424,6 +426,8 @@ namespace SpatialEmulator.UI
 
         void Toggle()
         {
+            // Over the game list on the screen: it's put away, the menu opens.
+            if (GamePicker.IsOpen && !GamePicker.InAR && _picker) _picker.Close();
             if (IsOpen) Close();
             else
             {
@@ -454,12 +458,6 @@ namespace SpatialEmulator.UI
             if (!FullScreenTest.Enabled) FullScreenTest.EnterWithCabinet();
             else if (GameCatalog.Find(GameSelection.Current) is { FullScreenOnly: true }) HeavyGamePrompt.NotInAR(_picker);
             else FullScreenTest.ReturnToAR();
-        }
-
-        void ToggleLock()
-        {
-            if (_manipulator) _manipulator.locked = !_manipulator.locked;
-            Show();
         }
 
         bool HasCabinet
@@ -503,12 +501,6 @@ namespace SpatialEmulator.UI
             if (_frame) _frame.sprite = CrtEffect.On ? _up : _down;
             if (_cab) _cab.sprite = CrtEffect.On ? _down : _up;
             if (_fullLabel) _fullLabel.text = FullScreenTest.Enabled ? "AR" : "FULL";
-            bool locked = _manipulator && _manipulator.locked;
-            if (_lock) _lock.sprite = locked ? _down : _up;
-            if (_lockLabel) _lockLabel.text = locked ? "LOCKED" : "LOCK";
-            // (Nothing to lock with no cabinet out.)
-            if (_lockButton) _lockButton.interactable = HasCabinet;
-            if (_lockLabel) _lockLabel.alpha = HasCabinet ? 1f : 0.4f;
         }
 
         // Handheld (a Kishi, a Backbone - TvOutput), the phone on its side: the three bars and their list in from the
@@ -538,12 +530,25 @@ namespace SpatialEmulator.UI
             if (key.anchoredPosition != at) key.anchoredPosition = at;
         }
 
+        const int MenuOrder = 34;   // (over the game picker (20), SpellWheel (30); under the windows (35))
+
         void LateUpdate()
         {
             if (!_menuKey) return;
             KeepClearOfNotch();
-            bool covered = GamePicker.IsOpen || SettingsScreen.IsOpen || LeaderboardWindow.IsOpen || SavesWindow.IsOpen;
-            if (_menuKey.activeSelf == covered) _menuKey.SetActive(!covered);
+            // (The list on the AR cabinet doesn't cover the screen.)
+            bool covered = (GamePicker.IsOpen && !GamePicker.InAR) || SettingsScreen.IsOpen || LeaderboardWindow.IsOpen || SavesWindow.IsOpen;
+            // The three bars always there - a way out from anywhere.
+            if (!_menuKey.activeSelf) _menuKey.SetActive(true);
+            if (_menuKey.TryGetComponent(out Canvas own))
+            {
+                if (!own.enabled) own.enabled = true;
+                if (!own.overrideSorting || own.sortingOrder != MenuOrder) { own.overrideSorting = true; own.sortingOrder = MenuOrder; }
+                var home = own.transform.parent ? own.transform.parent.GetComponentInParent<Canvas>() : null;
+                if (home && !home.rootCanvas.enabled) home.rootCanvas.enabled = true;
+            }
+            var t = _menuKey.transform;
+            if (t.GetSiblingIndex() != t.parent.childCount - 1) t.SetAsLastSibling();   // (over the game list too)
             // A window opened from the menu (SCORES, SAVES) goes over it: the menu's set aside,
             // still open - the game held (MenuPause) - and back when the window's closed.
             if (covered)

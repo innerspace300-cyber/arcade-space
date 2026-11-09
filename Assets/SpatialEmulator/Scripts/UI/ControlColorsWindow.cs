@@ -1,7 +1,7 @@
 // ControlColorsWindow.cs — Settings > COLORS: the on-screen controls'
-// colours (ControlColors) and the cabinet's frame (CabinetStyles). Three
-// sections in the settings rows' style - the JOYSTICK's knob, the BUTTONS
-// and the CABINET - each a grid of the choices drawn as the thing itself
+// colours (ControlColors) and the cabinet's frame (CabinetStyles). Four
+// sections in the settings rows' style - the JOYSTICK's knob, the BUTTONS,
+// the CABINET and the NEON GRID (AR scanning grid: PlaneGridFrame) - each a grid of the choices drawn as the thing itself
 // (the frame by its crest); tapping one puts it on the controls at once, and the
 // chosen one has a gold frame. Built at run time from the ABOUT window (its
 // panel, banner and close button) and the settings rows, next to ABOUT.
@@ -27,6 +27,11 @@ namespace SpatialEmulator.UI
             public System.Func<int> current;
             public GameObject[] marks;
             public TMP_Text chosen;
+            // Choices not yet earned (NEON RGB): dimmed, LOCKED over them, and a tap says how to earn them.
+            public System.Func<int, bool> locked;
+            public string lockedHint;
+            public Image[] icons;
+            public GameObject[] lockLabels;
         }
         readonly System.Collections.Generic.List<Choice> _choices = new System.Collections.Generic.List<Choice>();
 
@@ -55,33 +60,8 @@ namespace SpatialEmulator.UI
             var openLabel = open.GetComponentInChildren<TMP_Text>(true);
             if (openLabel) openLabel.text = "COLORS";
 
-            // The window: ABOUT's, emptied.
-            _window = Instantiate(settings.aboutWindow, settings.aboutWindow.transform.parent);
-            _window.name = "Colors Window";
-            var area = (RectTransform)_window.transform.Find("Text");
-            var content = new GameObject("Content", typeof(RectTransform)).GetComponent<RectTransform>();
-            content.SetParent(_window.transform, false);
-            if (area)
-            {
-                content.anchorMin = area.anchorMin; content.anchorMax = area.anchorMax;
-                content.offsetMin = area.offsetMin; content.offsetMax = area.offsetMax;
-                Destroy(area.gameObject);
-            }
-            var source = _window.transform.Find("Source Button");
-            if (source) Destroy(source.gameObject);
-            var title = _window.transform.Find("Title Banner")?.GetComponentInChildren<TMP_Text>(true);
-            if (title) title.text = "COLORS";
-            var close = _window.transform.Find("Close Button")?.GetComponent<Button>();
-            if (close)
-            {
-                close.onClick.RemoveAllListeners();
-                close.onClick.AddListener(Close);
-            }
-
-            var layout = content.gameObject.AddComponent<VerticalLayoutGroup>();
-            layout.spacing = 4f;
-            layout.childControlWidth = true; layout.childControlHeight = true;
-            layout.childForceExpandWidth = true; layout.childForceExpandHeight = false;
+            // The window: ABOUT's, emptied, its sections in a column you swipe up and down.
+            var content = (RectTransform)SettingsAudioRows.MakeWindow(settings, "Colors Window", "COLORS", out _window);
 
             // The settings rows' look (a ListItem panel, a title and a detail line).
             var row = settings.window.transform.Find("Safe Area/Panel/Rows/CONTROLLER");
@@ -94,12 +74,16 @@ namespace SpatialEmulator.UI
                 i => ControlColors.Button(i) ?? ControlColors.ArtButton, i => ControlColors.Buttons = i);
             Section(content, rowImage, rowTitle, "CABINET", CabinetStyles.Names, CabinetStyles.Swatches, () => CabinetStyles.Current,
                 i => CabinetStyles.Art(i, 1), i => CabinetStyles.Current = i, 4, CrestCell);
+            Section(content, rowImage, rowTitle, "NEON GRID", PlaneGridFrame.ColorNames, PlaneGridFrame.Glows, () => AppSettings.GridColor,
+                GridSwatch, i => AppSettings.GridColor = i, 4, CrestCell, PlaneGridFrame.Locked, PlaneGridFrame.RgbUnlockHint);
             _window.SetActive(false);
         }
 
         void Section(RectTransform parent, Image rowImage, TMP_Text rowTitle, string name, string[] names, Color[] colors,
-            System.Func<int> current, System.Func<int, Sprite> art, System.Action<int> pick, int columns = 3, Vector2 cell = default)
+            System.Func<int> current, System.Func<int, Sprite> art, System.Action<int> pick, int columns = 3, Vector2 cell = default,
+            System.Func<int, bool> locked = null, string lockedHint = null)
         {
+            Choice entry = null;
             if (cell == default) cell = Cell;
             var section = new GameObject(name, typeof(RectTransform), typeof(Image)).GetComponent<RectTransform>();
             section.SetParent(parent, false);
@@ -126,6 +110,8 @@ namespace SpatialEmulator.UI
             grid.gameObject.AddComponent<LayoutElement>().preferredHeight = rows * cell.y + (rows - 1) * 2f;
 
             var marks = new GameObject[names.Length];
+            var icons = new Image[names.Length];
+            var lockLabels = new GameObject[names.Length];
             var frame = Resources.Load<Sprite>("ControlColors/SwatchSelect");
             for (int i = 0; i < marks.Length; i++)
             {
@@ -133,7 +119,11 @@ namespace SpatialEmulator.UI
                 var choice = new GameObject(names[i], typeof(RectTransform), typeof(Image), typeof(Button)).GetComponent<RectTransform>();
                 choice.SetParent(grid, false);
                 choice.GetComponent<Image>().color = Color.clear;   // only there to be tapped
-                choice.GetComponent<Button>().onClick.AddListener(() => { pick(index); Refresh(); });
+                choice.GetComponent<Button>().onClick.AddListener(() =>
+                {
+                    if (locked != null && locked(index)) { Refresh(); entry.chosen.text = lockedHint; entry.chosen.color = Color.white; return; }
+                    pick(index); Refresh();
+                });
                 var sprite = art(i);
                 if (sprite)
                 {
@@ -143,6 +133,18 @@ namespace SpatialEmulator.UI
                     var image = icon.GetComponent<Image>();
                     image.sprite = sprite;
                     image.raycastTarget = false;
+                    icons[i] = image;
+                }
+                if (locked != null && locked(i))
+                {
+                    var tag = Label(choice, rowTitle, "LOCKED", Color.white);
+                    tag.alignment = TextAlignmentOptions.Center;
+                    tag.fontSize = Mathf.Max(6f, tag.fontSize * 0.75f);
+                    var tagRect = tag.rectTransform;
+                    tagRect.anchorMin = Vector2.zero; tagRect.anchorMax = Vector2.one;
+                    tagRect.offsetMin = tagRect.offsetMax = Vector2.zero;
+                    Destroy(tag.GetComponent<LayoutElement>());
+                    lockLabels[i] = tag.gameObject;
                 }
                 var mark = new GameObject("Chosen", typeof(RectTransform), typeof(Image)).GetComponent<RectTransform>();
                 mark.SetParent(choice, false);
@@ -154,7 +156,31 @@ namespace SpatialEmulator.UI
                 markImage.raycastTarget = false;
                 marks[i] = mark.gameObject;
             }
-            _choices.Add(new Choice { names = names, colors = colors, current = current, marks = marks, chosen = chosen });
+            entry = new Choice { names = names, colors = colors, current = current, marks = marks, chosen = chosen, locked = locked, lockedHint = lockedHint, icons = icons, lockLabels = lockLabels };
+            _choices.Add(entry);
+        }
+
+        // A little patch of the AR grid in neon `i`: its lines on its bloom.
+        static Sprite GridSwatch(int i)
+        {
+            const int width = 26, height = 16, spacing = 5;
+            var texture = new Texture2D(width, height, TextureFormat.RGBA32, false) { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp };
+            Color line = PlaneGridFrame.Lines[i], glow = PlaneGridFrame.Glows[i] * 0.35f;
+            glow.a = 1f;
+            for (int y = 0; y < height; y++)
+                for (int x = 0; x < width; x++)
+                {
+                    if (i == PlaneGridFrame.Rgb)
+                    {
+                        // NEON RGB: the rainbow running across it, corner to corner.
+                        var hue = Color.HSVToRGB(Mathf.Repeat((x + y) / (float)(width + height), 1f), 1f, 1f);
+                        line = Color.Lerp(hue, Color.white, 0.4f);
+                        glow = hue * 0.35f; glow.a = 1f;
+                    }
+                    texture.SetPixel(x, y, x % spacing == 0 || y % spacing == 0 ? line : glow);
+                }
+            texture.Apply();
+            return Sprite.Create(texture, new Rect(0f, 0f, width, height), new Vector2(0.5f, 0.5f), 100f);
         }
 
         static TMP_Text Label(RectTransform parent, TMP_Text like, string text, Color color)
@@ -185,7 +211,13 @@ namespace SpatialEmulator.UI
             foreach (var c in _choices)
             {
                 int chosen = c.current();
-                for (int i = 0; i < c.marks.Length; i++) c.marks[i].SetActive(i == chosen);
+                for (int i = 0; i < c.marks.Length; i++)
+                {
+                    c.marks[i].SetActive(i == chosen);
+                    bool shut = c.locked != null && c.locked(i);
+                    if (c.icons[i]) c.icons[i].color = shut ? new Color(0.35f, 0.35f, 0.35f, 1f) : Color.white;
+                    if (c.lockLabels[i]) c.lockLabels[i].SetActive(shut);
+                }
                 c.chosen.text = c.names[chosen];
                 // (Black, named in grey: it'd vanish on the dark panel.)
                 var color = c.colors[chosen];

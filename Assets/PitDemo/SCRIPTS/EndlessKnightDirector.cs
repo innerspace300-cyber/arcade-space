@@ -162,13 +162,6 @@ public class EndlessKnightDirector : MonoBehaviour
         _nextOrange = firstOrange;
         _nextSpike = firstSpike;
         _nextBossScore = bossScore;
-        if (TestFinalDragon && SpatialEmulator.Demo.PitDemoGame.Level == 4)
-        {
-            // (testing, from level 1's test gate: the final dragon - the one calling up zombies, the second - straight away)
-            TestFinalDragon = false;
-            _nextBossScore = 0;
-            _ownBosses = 4; _mainCount = 2;   // (the third dragon: LUCIFER)
-        }
         CrystalPrize.Coming = false;
         TreasureChest.RunCount = 0;
         LevelCollection.ResetRun();   // (the chests' candy from the first gummy bear and jelly bean again)
@@ -800,8 +793,6 @@ public class EndlessKnightDirector : MonoBehaviour
     // edge; each one after the first in the next of its colours, bigger, with
     // more health - as the Slime Boss's; its chest and sounds the Slime Boss's.
     int _ownBosses, _mainCount, _altCount;
-    /// Testing (LevelPortal's test gate, with the secret ones): the next level 4 run starts with its final dragon.
-    public static bool TestFinalDragon;
 
     void SpawnOwnBoss()
     {

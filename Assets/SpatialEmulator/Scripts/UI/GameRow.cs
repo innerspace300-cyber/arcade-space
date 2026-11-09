@@ -39,7 +39,7 @@ namespace SpatialEmulator.UI
         {
             Info = info;
             Installed = installed;
-            bool ready = installed != null && installed.status == RomStatus.Ready;
+            bool ready = installed != null && (installed.status == RomStatus.Ready || (installed.status == RomStatus.Incomplete && installed.missingFiles <= 1));   // (one file off: playable, GamePicker)
 
             group.alpha = installed != null ? 1 : notInstalledAlpha;
             background.sprite = isCurrent ? picker.rowCurrentSprite : picker.rowSprite;
@@ -76,8 +76,8 @@ namespace SpatialEmulator.UI
                     color = picker.warningColor;
                     break;
                 case RomStatus.Incomplete:
-                    line = installed.missingFiles == 1 ? "Incomplete romset: 1 file missing" : $"Incomplete romset: {installed.missingFiles} files missing";
-                    color = picker.errorColor;
+                    line = installed.missingFiles == 1 ? "1 file differs from MAME's list: may still run" : $"Incomplete romset: {installed.missingFiles} files missing";
+                    color = installed.missingFiles == 1 ? picker.warningColor : picker.errorColor;
                     break;
             }
             if (line == null && info.notWorking)

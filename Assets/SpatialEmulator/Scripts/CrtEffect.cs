@@ -76,7 +76,7 @@ namespace SpatialEmulator
                     _done[i] = quad;
                     var filter = quad.GetComponent<MeshFilter>();
                     if (!_flat && filter) _flat = filter.sharedMesh;
-                    if (filter) filter.sharedMesh = on && !hud ? Curved() : _flat;
+                    if (filter) filter.sharedMesh = on && !hud ? Curved(bulge) : _flat;
                     if (quad.sharedMaterial) quad.sharedMaterial.SetFloat(CrtId, on && !hud ? 1f : 0f);
                 }
                 // The curve's depth goes with the quad's width (its z scale, unused flat).
@@ -90,7 +90,8 @@ namespace SpatialEmulator
 
         // A screen-sized grid bulging toward the viewer (-z), most in the
         // middle, flat at the edges (where the frame holds it).
-        Mesh Curved()
+        /// (The game picker on the tube uses it too: UI.GamePicker.)
+        public static Mesh Curved(float bulge = Bulge)
         {
             if (s_curved) return s_curved;
             const int nx = 32, ny = 24;
@@ -196,7 +197,8 @@ namespace SpatialEmulator
             if (label) label.text = "FULL";
             var button = copy.GetComponent<Button>();
             button.onClick.RemoveAllListeners();
-            button.onClick.AddListener(() => { UI.FullScreenTest.Enabled = true; Haptics.Play(Haptics.Kind.Light); });
+            // (Full screen opens on the game list - pick what to play there.)
+            button.onClick.AddListener(() => { UI.FullScreenTest.Enabled = true; UI.GamePicker.OpenOnScreen(); Haptics.Play(Haptics.Kind.Light); });
             return (RectTransform)copy.transform;
         }
 

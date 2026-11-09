@@ -10,6 +10,18 @@ public static class PitAudio
 {
     static AudioSource s_shared;
 
+    /// ARcade: the demo's gone (PitDemoGame.Stop) - its sounds go too, even ones held (AudioListener.pause,
+    /// under the game list) that would otherwise play on once another game's picked.
+    public static void StopAll()
+    {
+        foreach (var source in Object.FindObjectsByType<AudioSource>(FindObjectsSortMode.None))
+        {
+            if (!source.gameObject.name.StartsWith("PitAudio")) continue;
+            source.Stop();
+            if (source != s_shared) Object.Destroy(source.gameObject);
+        }
+    }
+
     /// Plays the source's clip (at its volume and pitch) on top of anything it's already playing - on PitAudio's own
     /// voices, which the SFX volume reaches: the SFX filter on an object reaches only one of its sources, and the
     /// knight keeps all hers on one (her jump, slash, Holy Slash and hurt played on at SFX 0).

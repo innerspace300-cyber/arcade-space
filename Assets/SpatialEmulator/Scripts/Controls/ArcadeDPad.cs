@@ -7,9 +7,9 @@
 // (within the zone), so reversing never needs a long slide back. Driven by ArcadeTouchRouter,
 // which tracks every finger (the UI EventSystem here only sees one).
 //
-// Until the player has used it once, the pad rests visible at restPoint
-// whenever steering is available (router sets available), so it's clear
-// the stick is there; after the first thumb lifts it goes back to floating.
+// With no thumb on it the pad rests at restPoint, dimmed (RestAlpha), whenever
+// steering is available (router sets available); a thumb brings it under
+// itself at full strength, and lifting puts it back.
 // On THE TIME CRYSTAL's Choose Your Fighter it always rests there, faint
 // (FaintAlpha), to show the pilots can be picked with it - solid under a thumb.
 
@@ -52,9 +52,9 @@ namespace SpatialEmulator.Controls
         /// (a cabinet is placed and not being edited).
         public bool available { get; set; }
 
-        bool _used;
         CanvasGroup _fade;
         const float FaintAlpha = 0.3f;
+        const float RestAlpha = 0.55f;   // (45% under full, while no thumb's on it)
 
         // Resting faint, as a hint: on THE TIME CRYSTAL's Choose Your Fighter.
         static bool Hint => TimeCrystal.TcFighterSelect.Active;
@@ -90,15 +90,15 @@ namespace SpatialEmulator.Controls
             if (fingerId == null || !pad ||
                 !RectTransformUtility.ScreenPointToLocalPointInRectangle(_zone, screenPosition, eventCamera, out var local))
             {
-                if (_fingerId != null) _used = true; // first thumb lifted: float from now on
                 _fingerId = null;
                 if (pad)
                 {
+                    // Thumb up: the stick stays, back at its starting place, dimmed (RestAlpha).
                     bool hint = Hint && available && isActiveAndEnabled;
-                    bool rest = hint || (showAtRest && !_used && available && isActiveAndEnabled);
-                    pad.gameObject.SetActive(rest);
+                    bool rest = hint || (showAtRest && available && isActiveAndEnabled);
+                    if (pad.gameObject.activeSelf != rest) pad.gameObject.SetActive(rest);
                     if (rest) pad.localPosition = RestPosition();
-                    Fade(hint ? FaintAlpha : 1f);
+                    Fade(hint ? FaintAlpha : RestAlpha);
                 }
                 if (knob) knob.localPosition = Vector3.zero;
                 SetDirections(false, false, false, false);

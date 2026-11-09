@@ -99,8 +99,14 @@ namespace SpatialEmulator.UI
             { "EndlessKnight.HiScore", "EndlessKnight.FruitComplete", "EndlessKnight.Spell", Demo.DemoDialogue.SeenKey, Demo.DemoDialogue.LevelSeenKey + "2", Demo.DemoDialogue.LevelSeenKey + "3", Demo.DemoDialogue.LevelSeenKey + "4", LevelPortal.OpenKey, LevelPortal.OpenKey + "2", LevelPortal.OpenKey + "3", LevelPortal.OpenKey + "4",
               "EndlessKnight.FruitComplete2", "EndlessKnight.FruitComplete3", "EndlessKnight.FruitComplete4" };
 
+        /// The side panels' sorting order (this, the MENU one copied from it, and their keys):
+        /// over the game's layer quads (order 0, queue 3001+), so no angle cuts them off -
+        /// still depth tested, so the cabinet's body hides them as it should.
+        public const int SideOrder = 10;
+
         void Awake()
         {
+            if (TryGetComponent(out Canvas own)) { own.overrideSorting = true; own.sortingOrder = SideOrder; }   // (overrideSorting: for one nested under another canvas)
             _baseScale = transform.localScale * sizeScale;
             saveButton.onClick.AddListener(SaveNow);
             restartButton.onClick.AddListener(OnRestartTapped);
@@ -210,6 +216,8 @@ namespace SpatialEmulator.UI
         }
         Vector3? _corner;
         int _cornerVersion, _placedForCorner = -1;
+        float _placedForKeys = -1f;
+        const float CabinetPanelScale = 0.85f;   // (the side panels on the 3D cabinet: 15% under their size beside a frame)
         float _placedForGroup = -1f;
 
         void PlaceBesideScreen()
@@ -217,7 +225,8 @@ namespace SpatialEmulator.UI
             if (!stack) return;
             if (frame)
             {
-                if (_placedForFrame == frame.Version && _placedForCorner == _cornerVersion && _placedForGroup == MenuGroupHeight) return;
+                if (_placedForFrame == frame.Version && _placedForCorner == _cornerVersion && _placedForGroup == MenuGroupHeight && _placedForKeys == GamesPanel.CabinetKeysRow) return;
+                _placedForKeys = GamesPanel.CabinetKeysRow;
                 _placedForFrame = frame.Version;
                 _placedForCorner = _cornerVersion;
                 _placedForGroup = MenuGroupHeight;
@@ -231,18 +240,25 @@ namespace SpatialEmulator.UI
             float halfWidth = frame ? frame.OuterHalfWidth : stack.screenHeight * stack.PictureAspect * stack.pixelAspect * 0.5f;
             var rect = (RectTransform)transform;
             rect.localScale = _baseScale * grow;
-            // Beside the frame: MENU and LOCK as tall as the frame (this one the same scale).
+            // Beside the frame: its top level with the frame's, scaled as MENU is - LOCK's row
+            // (at the frame's top) and MENU under it as tall as the frame (GamesPanel's MenuGroupHeight).
             if (frame && _corner == null && MenuGroupHeight > 1f)
                 rect.localScale = _baseScale * (2f * frame.OuterHalfHeight / MenuGroupHeight / _baseScale.y);
             float panelHalf = rect.rect.width * rect.localScale.x * 0.5f;
             Vector3 center = stack.transform.localPosition;
             float z = frame ? frame.transform.localPosition.z : 0f;
             // The panel's content hangs from the top of its rect.
-            float y = frame ? center.y + frame.OuterHalfHeight - rect.rect.height * rect.localScale.y * (1f - rect.pivot.y) : center.y;
+            float y = frame ? center.y + frame.OuterHalfHeight - rect.rect.height * (1f - rect.pivot.y) * rect.localScale.y : center.y;
             rect.localPosition = new Vector3(center.x + halfWidth + gap * grow + panelHalf, y, z);
             if (_corner is Vector3 corner)
-                // (Down a header's height: level with MENU across the cabinet, under its three bars.)
-                rect.localPosition = new Vector3(corner.x + panelHalf, corner.y - (rect.rect.height * (1f - rect.pivot.y) + GamesPanel.CabinetHeader) * rect.localScale.y, corner.z);
+            {
+                // The 3D cabinet: 15% smaller (MENU mirrors it), down a header's height and
+                // LOCK's row (GamesPanel.CabinetKeysRow) - its top level with MENU's across the cabinet.
+                rect.localScale *= CabinetPanelScale;
+                panelHalf = rect.rect.width * rect.localScale.x * 0.5f;
+                float drop = rect.rect.height * (1f - rect.pivot.y) + GamesPanel.CabinetHeader + GamesPanel.CabinetKeysRow;
+                rect.localPosition = new Vector3(corner.x + panelHalf, corner.y - drop * rect.localScale.y, corner.z);
+            }
         }
 
         void Refresh()

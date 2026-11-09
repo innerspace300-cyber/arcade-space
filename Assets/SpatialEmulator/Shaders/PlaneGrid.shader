@@ -1,4 +1,4 @@
-// PlaneGrid.shader — the detected planes while the room's being scanned: thin neon blue grid lines with a soft glow
+// PlaneGrid.shader — the detected planes while the room's being scanned: thin neon grid lines (Settings' colour: PlaneGridFrame) with a soft glow
 // round them, drawn additively over the camera, and a slow pulse rolling out from each plane's middle. One grid for
 // the whole room (PlaneGridFrame squares it up with the walls), so floor lines carry on up the walls. The second
 // material on the plane prefab (ShadowReceiver, the first, still occludes and takes the cabinet's shadow).
@@ -8,8 +8,6 @@ Shader "SpatialEmulator/PlaneGrid"
 {
     Properties
     {
-        _GlowColor ("Glow", Color) = (0, 0.5, 1, 1)
-        _LineColor ("Line", Color) = (0.55, 0.9, 1, 1)
         _Cell ("Cell Size (metres)", Float) = 0.15
         _LineWidth ("Line Half Width (metres)", Float) = 0.0035
         _PlaneAlpha ("Plane Alpha", Float) = 1
@@ -50,8 +48,6 @@ Shader "SpatialEmulator/PlaneGrid"
             };
 
             CBUFFER_START(UnityPerMaterial)
-                float4 _GlowColor;
-                float4 _LineColor;
                 float _Cell;
                 float _LineWidth;
                 float _PlaneAlpha;
@@ -61,6 +57,19 @@ Shader "SpatialEmulator/PlaneGrid"
             // From PlaneGridFrame: xy the grid's first axis (flat on the floor), zw where its lines start; the floor's height.
             float4 _GridFrame;
             float _GridFloorY;
+            // From PlaneGridFrame too: the chosen neon's bloom and line.
+            float4 _GridGlowColor;
+            float4 _GridLineColor;
+            // NEON RGB (1): a rainbow flowing across the room instead, like ENDLESS KNIGHT's health bar.
+            float _GridRainbow;
+            // The single neons (PlaneGridFrame.Shades): five shades and neighbouring hues of the colour that a
+            // faster wave loops through, so the colour lives like NEON RGB's but stays itself.
+            float4 _GridShades[5];
+
+            float3 Rainbow(float h)
+            {
+                return saturate(abs(frac(h + float3(0, 2.0 / 3.0, 1.0 / 3.0)) * 6 - 3) - 1);
+            }
 
             v2f vert(appdata v)
             {
@@ -99,7 +108,24 @@ Shader "SpatialEmulator/PlaneGrid"
                 float glow = exp(-near / 0.01) * 0.6 + exp(-near / 0.03) * 0.16;
                 // A slow pulse rolling outward.
                 float pulse = 0.8 + 0.5 * pow(saturate(sin(length(i.plane) * 5 - _Time.y * 2.5) * 0.5 + 0.5), 6);
-                float3 colour = _GlowColor.rgb * glow * pulse + _LineColor.rgb * core * pulse;
+                float3 glowColour, lineColour;
+                // (one sweep every couple of metres, drifting slowly through the room)
+                float wave = frac((room.x + room.y) * 0.4 + height * 0.25 - _Time.y * 0.4);
+                if (_GridRainbow > 0.5)
+                {
+                    glowColour = Rainbow(wave);
+                    lineColour = lerp(glowColour, 1, 0.55);
+                }
+                else
+                {
+                    // Tighter and about twice as fast as the rainbow, round the five shades and back to the first.
+                    float t = frac((room.x + room.y) * 0.6 + height * 0.4 - _Time.y * 0.85) * 5;
+                    uint k = min((uint)t, 4u);
+                    float f = smoothstep(0, 1, frac(t));
+                    glowColour = lerp(_GridShades[k].rgb, _GridShades[k == 4u ? 0u : k + 1u].rgb, f);
+                    lineColour = lerp(glowColour, 1, 0.45);
+                }
+                float3 colour = glowColour * glow * pulse + lineColour * core * pulse;
                 // Fading to nothing at the plane's edge (the template's feather), and with the fader.
                 float feather = 1 - smoothstep(1, max(_ShortestUVMapping, 1.01), i.uv2.x);
                 return half4(colour * feather * _PlaneAlpha, 0);

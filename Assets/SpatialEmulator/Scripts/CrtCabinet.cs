@@ -9,10 +9,9 @@
 // takes its place), and the saves panel moves up by the front corner of its
 // top, level with it.
 //
-// It grows to nearly life size as it comes on: on the floor (or a table) it
-// stands on it, sized to bring its screen up to the viewer's eye (no bigger
-// than life size), a soft fake shadow under it as if lit from overhead; on a wall it hangs with its back to it, and from a
-// ceiling it hangs upright with its top just under it - both life size. The
+// It grows to StartHeight as it comes on: on the floor (or a table) it
+// stands on it, no bigger than brings its screen up to the viewer's eye, a soft fake shadow under it as if lit from overhead; on a wall it hangs with its back to it, and from a
+// ceiling it hangs upright with its top just under it. The
 // cabinet's tap box grows to take it in, so a tap anywhere on it picks the
 // whole thing up to move, turn and scale (CabinetManipulator). Off,
 // everything goes back as it was, at the size it had. On the AR cabinet's
@@ -33,8 +32,6 @@ namespace SpatialEmulator
         public float overscan = 1f;
         [Tooltip("The saves panel's gap from the cabinet's side, as a share of the picture's width - room to press its keys without catching the cabinet.")]
         public float panelGap = 0.12f;
-        [Tooltip("Largest the cabinet grows to as it comes on (1 = life size).")]
-        public float lifeSize = 1f;
         [Tooltip("Gap between the cabinet and a wall or ceiling it hangs from, in metres.")]
         public float mountGap = 0.01f;
 
@@ -48,6 +45,8 @@ namespace SpatialEmulator
         BoxCollider _box;
         CrtCabinetModel _model;
         bool _modelVertical;   // _model's the vertical cabinet (CrtCabinetVertical)
+        /// The vertical cabinet's showing (its sides close by the tube: GamePicker keeps inside them).
+        public bool ModelVertical => _model && _modelVertical;
         bool _shown;
         Mount _mount;
         Quaternion _stackRotation;
@@ -60,6 +59,13 @@ namespace SpatialEmulator
         const float WallThickness = 0.035f;   // the cabinet's side panels, in the model's metres
         const float PanelGap = 0.07f;   // the front layer's gap from the control panel's back edge, in the model's metres: behind the lip under the screen
         const float StraightenSeconds = 0.35f;
+        const float StartHeight = 1.6f;   // how tall either cabinet stands as it comes on, in metres
+
+        /// The player's pinch on top of the starting size (CabinetManipulator), kept for the rest of the
+        /// session: a cabinet placed again (or the other cabinet) comes on at that size too.
+        public static float SizeRatio = 1f;
+        /// This cabinet's starting size, before the player's pinch.
+        public float StartScale { get; private set; } = 1f;
         const float VerticalFill = 0.92f;   // a vertical game's picture: this much of the tube's height
         float _straight = -1f;   // 0 tilted onto the tube, 1 straight on (-1: not yet set)
 
@@ -148,15 +154,17 @@ namespace SpatialEmulator
                 _stack.transform.localPosition = _stackHome;
                 Fit();
 
-                // Then up to (nearly) life size, from where it meets the floor, wall or ceiling.
-                float scale = lifeSize;
+                // Then up to its starting height (the same for both cabinets), from where it meets the floor, wall or ceiling.
+                float scale = StartHeight / Mathf.Max(b.size.y, 0.01f);
                 var cam = Camera.main;
                 if (_mount == Mount.Floor && cam)
                 {
                     // (The screen's middle, at scale 1, is its height in metres over the floor.)
                     float eye = cam.transform.position.y - transform.position.y;
-                    if (eye > 0f) scale = Mathf.Min(lifeSize, eye / _stackHome.y);
+                    if (eye > 0f) scale = Mathf.Min(scale, eye / _stackHome.y);
                 }
+                StartScale = scale;
+                scale *= SizeRatio;
                 var manipulator = FindAnyObjectByType<CabinetManipulator>();
                 if (manipulator) scale = Mathf.Clamp(scale, manipulator.minScale, manipulator.maxScale);
                 ScaleAbout(Pivot(), scale);
@@ -201,6 +209,24 @@ namespace SpatialEmulator
             position = transform.TransformPoint(glass - normal * (0.005f * scale));
             rotation = transform.rotation * Quaternion.FromToRotation(Vector3.back, normal);   // (on the tube, however the picture's tilted)
             width = _model.screenWidth * scale * transform.lossyScale.x;
+        }
+
+        /// Where the game's picture lies in the tube (the game picker draws
+        /// itself there too: GamePicker): its back plane - the edges of its
+        /// CRT bulge, `recess` behind the glass, as deep as the tube's curve
+        /// lets it go - facing the player (its -z); 4:3 and as tall as the
+        /// tube (its sides tucked behind the bezel); and the tube's own width.
+        /// World metres.
+        public void PicturePose(out Vector3 position, out Quaternion rotation, out float width, out float height, out float tubeWidth)
+        {
+            float scale = _model.transform.localScale.x, world = scale * transform.lossyScale.x;
+            Vector3 normal = Turn * _model.screenNormal;
+            Vector3 glass = _model.transform.localPosition + Turn * (_model.screenCenter * scale);
+            position = transform.TransformPoint(glass - normal * (_model.recess * scale));
+            rotation = transform.rotation * Quaternion.FromToRotation(Vector3.back, normal);
+            height = _model.screenHeight * world;
+            width = height * 4f / 3f;
+            tubeWidth = _model.screenWidth * world;
         }
 
         // A soft dark patch on the floor right under the cabinet, faked, as if

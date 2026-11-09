@@ -130,6 +130,22 @@ namespace SpatialEmulator.Controls
                 }
         }
 
+        /// A new game's about to load: nothing from the last one carries into
+        /// it - no tap still being stretched, no coin mid-pulse, and a button
+        /// still held (from the last game, the demo or the pick itself) only
+        /// counts once it's let go, so the board boots with nothing pressed.
+        public static void ResetForNewGame()
+        {
+            for (int i = 0; i < IdCount; i++)
+            {
+                s_minFramesLeft[i] = 0;
+                s_mustRelease[i] = HeldNow((uint)i);
+            }
+            s_coinPulse = 0;
+            s_coinWait = 0;
+            s_coinWas = false;
+        }
+
         /// Call once per emulated frame, from the core's input-poll callback.
         public static void OnPoll()
         {

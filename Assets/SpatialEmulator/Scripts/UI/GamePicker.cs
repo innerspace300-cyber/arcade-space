@@ -52,6 +52,41 @@ namespace SpatialEmulator.UI
         /// cabinet. Cleared when the list closes.
         public static bool ArOnly { get; private set; }
 
+        /// Open on the AR cabinet's screen (not over the phone's).
+        public static bool InAR => s_open && s_self && s_self.window.transform.parent != s_self._windowHome;
+
+        /// FULL from the AR cabinet: the list on the phone's screen, full screen,
+        /// to pick what to play there (the game's still held, and silent, till then).
+        public static void OpenOnScreen()
+        {
+            if (!s_self) return;
+            if (!s_open) { s_self._onCabinet = true; AudioListener.pause = true; s_self.Open(); }
+            s_self.Unmount();
+        }
+
+        /// A cabinet's just been dropped into the room (CabinetDrop): the list opens in its frame, flat
+        /// (the game's layers hidden), whatever Settings > Games in AR says, to pick what it plays.
+        public static void OpenOnCabinet()
+        {
+            if (!s_self || FullScreenTest.Enabled) return;
+            s_self._onCabinet = true;
+            // Not a sound from the game (THE PIT's campfire, the music...) until one's picked; the slam's own
+            // boom is let through (CabinetDrop).
+            AudioListener.pause = true;
+            if (s_open) { s_self.MountInFrame(); return; }
+            s_self.Open();
+        }
+        bool _onCabinet;
+
+        /// The cabinet moved this frame after the list followed it (CabinetDrop's fall): catch up.
+        public static void FollowCabinet()
+        {
+            if (!s_self) return;
+            // (The frame wasn't up yet when it opened: into it now.)
+            if (s_self._onCabinet && s_open && s_self.window.transform.parent == s_self._windowHome) s_self.MountInFrame();
+            if (s_self._arFrame && s_self.window.transform.parent != s_self._windowHome) s_self.FollowFrame();
+        }
+
         public void OpenForAR()
         {
             ArOnly = true;
@@ -124,7 +159,8 @@ namespace SpatialEmulator.UI
         {
             GameCatalog.Load(catalog);
             rowTemplate.gameObject.SetActive(false);
-            list.gameObject.AddComponent<ScrollBoost>();   // (scrolls half again as fast: a long list)
+            list.gameObject.AddComponent<ScrollBoost>().factor = 2.5f;   // (a long list: a swipe goes 2.5x the finger)
+            list.decelerationRate = 0.3f;   // (and a flick coasts on longer - Unity's default is 0.135)
             toast.alpha = 0;
             toast.gameObject.SetActive(false);
             openButton.GetComponent<Button>().onClick.AddListener(Open);
@@ -149,7 +185,7 @@ namespace SpatialEmulator.UI
             _arCanvas = ar.AddComponent<Canvas>();
             _arCanvas.renderMode = RenderMode.WorldSpace;
             _arCanvas.sortingOrder = 5; // over the frame's checkerboard
-            ar.AddComponent<GraphicRaycaster>();
+            _raycaster = ar.AddComponent<CurvedPickerRaycaster>();
             ar.SetActive(false);
         }
 
@@ -159,6 +195,8 @@ namespace SpatialEmulator.UI
             GamepadInput.ControllerChanged -= OnControllerChanged;
             if (s_open) SetOpen(false);
             if (_arCanvas) Destroy(_arCanvas.gameObject);
+            if (_tubeTexture) { _tubeTexture.Release(); Destroy(_tubeTexture); }
+            if (_tubeMaterial) Destroy(_tubeMaterial);
         }
 
         void Start()
@@ -222,7 +260,12 @@ namespace SpatialEmulator.UI
         {
             if (open == s_open && window.activeSelf == open) return;
             s_open = open;
-            if (!open) { s_closedAt = Time.unscaledTime; ArOnly = false; }
+            if (!open)
+            {
+                s_closedAt = Time.unscaledTime; ArOnly = false;
+                if (_onCabinet && !MenuPause.Held && !SettingsScreen.IsOpen) AudioListener.pause = false;   // (a game picked: its sound on)
+                _onCabinet = false;
+            }
             HideDelete();
             window.SetActive(open);
             if (open || !MenuDropdown.Exists) openButton.SetActive(!open);
@@ -236,7 +279,7 @@ namespace SpatialEmulator.UI
 
         void MountInFrame()
         {
-            if (!AppSettings.PickerInAR || FullScreenTest.Enabled) return;
+            if ((!AppSettings.PickerInAR && !_onCabinet) || FullScreenTest.Enabled) return;
             var frame = FindAnyObjectByType<ScreenFrame>();
             if (!frame || !frame.stack) return;
             _arFrame = frame;
@@ -245,6 +288,7 @@ namespace SpatialEmulator.UI
             var rect = (RectTransform)window.transform;
             rect.SetParent(_arCanvas.transform, false);
             Fill(rect);
+            _windowInset = Vector2.zero;
             if (_backdrop) _backdrop.SetActive(false);
             if (_safeArea)
             {
@@ -259,11 +303,13 @@ namespace SpatialEmulator.UI
         {
             if (_arFrame && _arFrame.stack) _arFrame.stack.LayersVisible = true;
             _arFrame = null;
+            OnTube(false);
             if (window.transform.parent == _windowHome) return;
             var rect = (RectTransform)window.transform;
             rect.SetParent(_windowHome, false);
             rect.SetSiblingIndex(_windowSibling);
             Fill(rect);
+            _windowInset = new Vector2(-1f, -1f);
             if (_backdrop) _backdrop.SetActive(true);
             if (_safeArea) _safeArea.enabled = true;
             _arCanvas.gameObject.SetActive(false);
@@ -285,21 +331,154 @@ namespace SpatialEmulator.UI
         {
             var frame = (RectTransform)_arFrame.transform;
             var rect = (RectTransform)_arCanvas.transform;
-            rect.sizeDelta = _arFrame.InnerSize;
             var crt = _arFrame.GetComponentInParent<CrtCabinet>();
             bool onTube = crt && crt.Shown;
-            ScanLines(onTube);
+            ScanLines(false);   // (on the tube the CRT filter draws its lines)
+            OnTube(onTube);
             if (onTube)
             {
-                crt.TubePose(out var position, out var rotation, out float width);
-                rect.localScale = Vector3.one * (width / Mathf.Max(1f, _arFrame.InnerSize.x));
-                rect.SetPositionAndRotation(position, rotation);
+                // Where the game's picture goes (its curve just clear of the
+                // tube's), as big: over the whole tube, its sides tucked
+                // behind the bezel. The canvas lies at the curve's middle.
+                crt.PicturePose(out var position, out var rotation, out float width, out float height, out float tubeWidth);
+                // Laid out landscape whatever the game (a vertical one's
+                // frame is tall and narrow: the picker would be squeezed).
+                Vector2 inner = _arFrame.InnerSize;
+                float across = Mathf.Max(1f, Mathf.Max(inner.x, inner.y * 4f / 3f));
+                // A tube narrower than the 4:3 picture (the vertical cabinet's): the screen no
+                // wider than the tube - none of it out past the cabinet's sides - the picker
+                // still landscape in its middle, black above and below.
+                float tall = 0f;
+                if (crt.ModelVertical && tubeWidth > 0f && width > tubeWidth)
+                {
+                    tall = height;
+                    width = tubeWidth;
+                }
+                float sheetHeight = tall > 0f ? tall : height;
+                rect.sizeDelta = new Vector2(across, Mathf.Round(across * sheetHeight / width));
+                rect.localScale = Vector3.one * (width / across);
+                rect.SetPositionAndRotation(position + rotation * Vector3.back * (CrtEffect.Bulge * width), rotation);
+                // The picker itself kept in the part that shows: in from the
+                // bezel at the sides, and clear of the filter's rounded,
+                // bent-out edges all round.
+                float side = Mathf.Max(0f, (width - tubeWidth) * 0.5f) / rect.localScale.x;
+                float upDown = tall > 0f ? Mathf.Max(0f, (rect.sizeDelta.y - across * 3f / 4f) * 0.5f) : 0f;
+                FitWindow(side + across * TubeEdge, upDown + rect.sizeDelta.y * TubeEdge);
+                FitTube(width);
                 return;
             }
+            rect.sizeDelta = _arFrame.InnerSize;
+            FitWindow(0f, 0f);
             rect.localScale = frame.lossyScale;
             float cabinetScale = frame.parent ? frame.parent.lossyScale.x : 1f;
             // The viewer is on the frame's -Z side.
             rect.SetPositionAndRotation(frame.position - frame.forward * (0.0005f * cabinetScale), frame.rotation);
+        }
+
+        // ---- on the CRT cabinet's tube ----
+        // There the picker's drawn like the game: a camera of its own (the
+        // canvas on a layer only it sees) takes it into a texture, and that's
+        // shown on the game's bulging screen (CrtEffect.Curved) through the
+        // game's CRT filter (LayerUnlit _Crt) - the same curve, scanlines and
+        // dark corners. The canvas stays, flat and unseen, for taps
+        // (CurvedPickerRaycaster carries them through the curve).
+        const float TubeEdge = 0.05f;   // the picker this far in from the screen's edges (of its width, its height)
+        static readonly Color TubeBlack = new Color(0.02f, 0.01f, 0.05f, 1f);
+        Vector2 _windowInset = new Vector2(-1f, -1f);
+
+        void FitWindow(float x, float y)
+        {
+            var inset = new Vector2(Mathf.Round(x), Mathf.Round(y));
+            if (inset == _windowInset) return;
+            _windowInset = inset;
+            var rect = (RectTransform)window.transform;
+            rect.offsetMin = inset;
+            rect.offsetMax = -inset;
+        }
+
+        const int TubeLayer = 31;   // (unnamed, unused: the picker camera's own)
+        const float TubeTexels = 3f;   // texture pixels to a picker pixel
+        CurvedPickerRaycaster _raycaster;
+        Camera _tubeCamera;
+        RenderTexture _tubeTexture;
+        Material _tubeMaterial;
+        MeshRenderer _tubeScreen;
+        bool _onTube;
+
+        void OnTube(bool on)
+        {
+            if (_raycaster) _raycaster.curved = on;
+            if (on == _onTube) return;
+            _onTube = on;
+            if (on && !_tubeCamera)
+            {
+                var go = new GameObject("Game Picker Camera");
+                go.transform.SetParent(_arCanvas.transform, false);
+                _tubeCamera = go.AddComponent<Camera>();
+                _tubeCamera.orthographic = true;
+                _tubeCamera.clearFlags = CameraClearFlags.SolidColor;
+                _tubeCamera.backgroundColor = TubeBlack;   // (the whole tube lit, round the picker)
+                _tubeCamera.cullingMask = 1 << TubeLayer;
+                _tubeCamera.allowHDR = false;
+                _tubeCamera.allowMSAA = false;
+                _tubeCamera.depth = -10;
+
+                var screen = new GameObject("Game Picker Screen", typeof(MeshFilter), typeof(MeshRenderer));
+                screen.layer = gameObject.layer;
+                screen.transform.SetParent(_arCanvas.transform, false);
+                screen.GetComponent<MeshFilter>().sharedMesh = CrtEffect.Curved();
+                _tubeScreen = screen.GetComponent<MeshRenderer>();
+                _tubeScreen.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                _tubeScreen.receiveShadows = false;
+                var shader = _arFrame && _arFrame.stack && _arFrame.stack.layerShader ? _arFrame.stack.layerShader : Shader.Find("SpatialEmulator/LayerUnlit");
+                _tubeMaterial = new Material(shader);
+                _tubeMaterial.SetFloat("_FlipV", 0f);
+                _tubeMaterial.SetFloat("_Crt", 1f);
+                _tubeScreen.sharedMaterial = _tubeMaterial;
+            }
+            if (_tubeCamera) _tubeCamera.enabled = on;
+            if (_tubeScreen) _tubeScreen.gameObject.SetActive(on);
+            // The canvas on the picker camera's layer (out of the AR camera's sight), or back.
+            SetLayer(_arCanvas.transform, on ? TubeLayer : gameObject.layer);
+            if (_tubeScreen) _tubeScreen.gameObject.layer = gameObject.layer;
+            if (on && Camera.main) Camera.main.cullingMask &= ~(1 << TubeLayer);
+        }
+
+        static void SetLayer(Transform t, int layer)
+        {
+            t.gameObject.layer = layer;
+            for (int i = 0; i < t.childCount; i++) SetLayer(t.GetChild(i), layer);
+        }
+
+        // The texture as big as the picker (times TubeTexels), the camera
+        // square on to the canvas, the curved screen on it: its middle where
+        // the canvas is, its edges back into the tube.
+        void FitTube(float width)
+        {
+            if (!_tubeCamera) return;
+            Vector2 size = ((RectTransform)_arCanvas.transform).sizeDelta;
+            if (size.x < 1f || size.y < 1f) return;
+            int tw = Mathf.Min(2048, Mathf.RoundToInt(size.x * TubeTexels)), th = Mathf.Min(2048, Mathf.RoundToInt(size.y * TubeTexels));
+            if (!_tubeTexture || _tubeTexture.width != tw || _tubeTexture.height != th)
+            {
+                if (_tubeTexture) { _tubeTexture.Release(); Destroy(_tubeTexture); }
+                _tubeTexture = new RenderTexture(tw, th, 0, RenderTextureFormat.ARGB32) { name = "Game Picker (Tube)", filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+                _tubeCamera.targetTexture = _tubeTexture;
+                _tubeMaterial.mainTexture = _tubeTexture;
+            }
+            float worldHeight = width * size.y / size.x;
+            var canvas = _arCanvas.transform;
+            _tubeCamera.orthographicSize = worldHeight * 0.5f;
+            _tubeCamera.aspect = size.x / size.y;
+            _tubeCamera.nearClipPlane = 0.001f;
+            _tubeCamera.farClipPlane = 0.1f;
+            // (On the viewer's side, -z, looking along the canvas's +z.)
+            _tubeCamera.transform.SetPositionAndRotation(canvas.position - canvas.forward * 0.02f, canvas.rotation);
+            var screen = _tubeScreen.transform;
+            screen.localRotation = Quaternion.identity;
+            screen.localScale = new Vector3(size.x, size.y, size.x);
+            screen.localPosition = new Vector3(0f, 0f, CrtEffect.Bulge * size.x);
+            _raycaster.bulge = CrtEffect.Bulge;
         }
 
         // The CRT's dark lines between rows, over the picker on the tube.
@@ -330,8 +509,8 @@ namespace SpatialEmulator.UI
         void LateUpdate()
         {
             if (window.transform.parent == _windowHome) return;
-            // The cabinet went away: carry on on the screen.
-            if (!_arFrame || !_arFrame.isActiveAndEnabled) { Unmount(); return; }
+            // The cabinet went away, or full screen's on (no AR to see it in): carry on on the screen.
+            if (!_arFrame || !_arFrame.isActiveAndEnabled || FullScreenTest.Enabled) { Unmount(); return; }
             FollowFrame();
         }
 
@@ -558,6 +737,10 @@ namespace SpatialEmulator.UI
             switch (game.status)
             {
                 case RomStatus.Ready:
+                // One file off the catalog's list: often just a different dump of a small one
+                // (Dragon Blaze's EEPROM) that MAME runs with - so it's tried, and if MAME
+                // can't run it, the load's failure says so.
+                case RomStatus.Incomplete when game.missingFiles <= 1:
                     // Picked for AR: out of full screen, to place a cabinet for it.
                     if (ArOnly) FullScreenTest.ReturnToAR();
                     // Too heavy for AR: straight into full screen.
@@ -565,6 +748,10 @@ namespace SpatialEmulator.UI
                     // Tapping the game that's already on just goes back to it.
                     if (game.game.name != GameSelection.Current || !(LibretroCore.IsRunning || Demo.LayeredDemo.AnyRunning))
                         GameSelection.Select(game.game.name);
+                    // A game picked plays straight away: any menu still open behind the list
+                    // (the AR side menus, the three-bar menu) folds away, or it'd hold the new
+                    // game paused and look frozen.
+                    MenuPause.CloseMenus();
                     Close();
                     break;
                 case RomStatus.NeedsBios:

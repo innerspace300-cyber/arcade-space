@@ -92,6 +92,17 @@ namespace SpatialEmulator.Games
             if (skipExisting && File.Exists(PathFor(target)) && new FileInfo(PathFor(target)).Length == new FileInfo(sourcePath).Length)
                 return new ImportResult { ok = true, already = true, name = target, message = label + " is already added" };
 
+            // A BIOS zip has to hold every file MAME checks (the catalog's CRCs for it): an old
+            // or partial one (an outdated neogeo.zip off a ROM site) stops every game on that
+            // board - so it's turned away, and a working one already added is kept.
+            if (GameCatalog.Find(target) is { isBios: true } bios && !HasAll(entries, bios.crcs))
+            {
+                bool kept = File.Exists(PathFor(target)) && ZipDirectory.Read(PathFor(target)) is { } current && HasAll(current, bios.crcs);
+                return Fail(kept
+                    ? $"Kept your {label.Replace("the ", "")}: {fileName} is an old or incomplete version"
+                    : $"{fileName} is an old or incomplete version of {label}. Games on it need the current one");
+            }
+
             try
             {
                 Directory.CreateDirectory(RomsDir);
@@ -231,6 +242,16 @@ namespace SpatialEmulator.Games
             }
             label = null;
             return null;
+        }
+
+        // Every one of these CRCs is in the zip.
+        static bool HasAll(List<ZipDirectory.Entry> entries, uint[] crcs)
+        {
+            if (crcs == null) return true;
+            var have = new HashSet<uint>();
+            foreach (var entry in entries) have.Add(entry.crc);
+            foreach (uint crc in crcs) if (!have.Contains(crc)) return false;
+            return true;
         }
 
         // Two or more of a BIOS's own files.

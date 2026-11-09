@@ -51,35 +51,51 @@ namespace SpatialEmulator.Demo
 
         static readonly Slide[] Intro =
         {
-            new Slide(Speaker.Witch, "WELCOME TO THE ENDLESS LOOP.\nTRY TO ESCAPE IF YOU CAN."),
-            new Slide(Speaker.Knight, "AN ENDLESS LOOP? THEN I'LL CUT MY WAY OUT."),
-            new Slide(Speaker.Witch, "WATCH OUT FOR THE GLUTTON. FIND EVERY FRUIT AND I'LL OPEN A PORTAL."),
+            new Slide(Speaker.Witch, "WELCOME BACK TO THE BEGINNING!\n\nDID YOU ESCAPE THE ENDLESS LOOP?"),
+            new Slide(Speaker.Knight, "REMIND ME AGAIN HOW TO ASCEND?"),
+            new Slide(Speaker.Witch, "BIG SLIME HAS STOLEN ALL THE FRUIT\nIN THIS VERSE. TAKE IT BACK\nTO ENTER THE NEXT LOOP!"),
             new Slide(Speaker.HowToPlay, null),
         };
+
+        // The opening again, for a knight rebooted by the ending (no HOW TO PLAY).
+        static readonly Slide[] IntroAgain = System.Array.FindAll(Intro, slide => slide.speaker != Speaker.HowToPlay);
 
         // Each later level's welcome: its bosses, and what to collect for its portal (LevelCollection).
         static Slide[] LevelIntro(int level) => level switch
         {
             2 => new[]
             {
-                new Slide(Speaker.Witch, "NECRO MAGES RAISE THE DEAD HERE, AND ROCKY RISES FROM THE ROCK."),
-                new Slide(Speaker.Witch, "EACH BOSS YOU BEAT DROPS A GOLD KEY. BRING ME ALL 15."),
-                new Slide(Speaker.Knight, "15 KEYS. CONSIDER IT DONE."),
+                new Slide(Speaker.Witch, "NECRO MAGES RAISE THE DEAD HERE.\n\nNOTHING STAYS BURIED ON THIS PLANE."),
+                new Slide(Speaker.Witch, "EACH BOSS YOU BEAT DROPS A GOLD KEY.\n\nBRING ME ALL 15."),
+                new Slide(Speaker.Knight, "15 KEYS. WHAT DO THEY OPEN?"),
+                new Slide(Speaker.Witch, "YOU ALWAYS ASK THAT.\nTHEY OPEN THE GATE\nTO THE BAMBOO MOUNTAINS."),
             },
             3 => new[]
             {
-                new Slide(Speaker.Witch, "BIG SWAMP AND THE GAZER LURK HERE. WATCH FOR ITS BEAM."),
-                new Slide(Speaker.Witch, "EACH BOSS DROPS AN EGG. GATHER ALL 14 FOR MY PORTAL."),
-                new Slide(Speaker.Knight, "TOADS AND EGGS. LOVELY."),
+                new Slide(Speaker.Witch, "RATS RULE THE BAMBOO MOUNTAINS.\n\nTHEY SEE NOTHING PAST THEIR NEXT MEAL."),
+                new Slide(Speaker.Witch, "I NEED MONSTER EGGS.\n\nGATHER THEM ALL TO UNLOCK THE DEAD ZONE."),
             },
             4 => new[]
             {
-                new Slide(Speaker.Witch, "VIKINGS GUARD THIS ROAD, AND THE ELDER DRAGON RULES IT."),
-                new Slide(Speaker.Witch, "EACH BOSS DROPS A POTION. COLLECT ALL 15... IF YOU CAN."),
+                new Slide(Speaker.Witch, "VIKINGS DIE HERE AND RISE TO FIGHT AGAIN.\n\nTHE ELDER DRAGON RULES THEM ALL."),
+                new Slide(Speaker.Witch, "EACH BOSS DROPS A POTION.\n\nCOLLECT ALL 15... IF YOU MUST."),
                 new Slide(Speaker.Knight, "THEN THIS IS WHERE THE LOOP ENDS."),
+                new Slide(Speaker.Witch, "WE SHALL SEE..."),
             },
             _ => null,
         };
+
+        // The dark crystal fed (LevelPortal): what it was, and the next version.
+        static readonly Slide[] Ending =
+        {
+            new Slide(Speaker.Witch, "THAT'S THE DARK TIME CRYSTAL!\n\nIT FEEDS OFF ALL YOU GATHER."),
+            new Slide(Speaker.Knight, "THEN I'LL DESTROY IT!"),
+            new Slide(Speaker.Witch, "ONLY DRAGON FIRE CAN DESTROY IT!"),
+            new Slide(Speaker.Witch, "WE MUST TRANSMIT THIS KNOWLEDGE\nTO ANOTHER TIME!"),
+            new Slide(Speaker.Knight, "SEND ME BACK!\n\nI'LL FIND THE ANSWERS IN THE PAST!"),
+        };
+        // Running the wrong way too long (PitDemoGame.NothingThatWay).
+        static readonly Slide[] NothingThatWayLine = { new Slide(Speaker.Witch, "WRONG WAY!\nALWAYS MOVE FORWARD KNIGHT!\nYOU CAN'T CHANGE THE PAST!") };
         static readonly Slide[] HowToOnly = { new Slide(Speaker.HowToPlay, null) };
         static readonly Slide[] RestartPrompt =
         {
@@ -93,7 +109,7 @@ namespace SpatialEmulator.Demo
         {
             nextLevel == 1
                 ? new Slide(Speaker.Portal, "THE DRAGON FALLS! BUT THE LOOP NEVER ENDS.\nBACK TO THE START, KNIGHT?")
-                : new Slide(Speaker.Portal, "WELL DONE, KNIGHT!\nREADY FOR LEVEL " + nextLevel + "?\nI'LL OPEN A PORTAL."),
+                : new Slide(Speaker.Portal, "WELL DONE, KNIGHT!\nYOU MAY ENTER\n" + (nextLevel == 2 ? "THE DARK FOREST." : nextLevel == 3 ? "THE BAMBOO MOUNTAINS." : "THE DEAD ZONE!")),
         };
 
         // The rows of the HOW TO PLAY box: the control, its name (gold), what it does.
@@ -163,8 +179,25 @@ namespace SpatialEmulator.Demo
         /// The opening, unless it's been seen (a finished run of it).
         public static void ShowIntro()
         {
+            if (ReplayOpening)
+            {
+                ReplayOpening = false;
+                var game = PitDemoGame.Running;
+                if (game) game.StartCoroutine(OpeningAgain(game));
+                return;
+            }
             if (PlayerPrefs.GetInt(SeenKey, 0) == 1) return;
             Open(Intro, true, null);
+        }
+
+        /// The ending's reboot: the next start of the game has the witch's opening again, seen or not (LevelPortal).
+        public static bool ReplayOpening;
+
+        static System.Collections.IEnumerator OpeningAgain(PitDemoGame game)
+        {
+            yield return new WaitForSecondsRealtime(1.6f);   // (once her strike has brought the new knight in)
+            if (PitDemoGame.Running != game || Showing) yield break;
+            Open(IntroAgain, false, null);
         }
 
         /// Level `level`'s welcome (2-4), the first time she gets there - a moment after she arrives.
@@ -184,11 +217,19 @@ namespace SpatialEmulator.Demo
             if (Instance) Instance._seenKey = seenKey;
         }
 
-        /// The witch saying `lines`, one box each (the dark crystal's ending: LevelPortal).
-        public static void WitchSays(params string[] lines)
+        /// The dark crystal's ending, the witch and the knight (LevelPortal).
+        public static void ShowEnding()
         {
+            PlaneGridFrame.UnlockRgb();   // (the reward: the NEON RGB grid, in Settings > COLORS)
             if (Instance) Destroy(Instance.gameObject);
-            Open(System.Array.ConvertAll(lines, l => new Slide(Speaker.Witch, l)), false, null);
+            Open(Ending, false, null);
+        }
+
+        /// The witch, when she's run left too long (not over another box).
+        public static void ShowNothingThatWay()
+        {
+            if (Showing) return;
+            Open(NothingThatWayLine, false, null);
         }
 
         /// HOW TO PLAY, any time (not over another box).
@@ -501,6 +542,49 @@ namespace SpatialEmulator.Demo
             }
         }
 
+        // The short box's lines (its paragraphs, written a blank line apart)
+        // spread evenly: the same gap above the first line (under the box's
+        // line), between each, and under the last down to PRESS C.
+        void SpaceEvenly(TalkBox talk, string text)
+        {
+            var t = talk.text;
+            t.lineSpacing = 0f;
+            t.margin = Vector4.zero;
+            t.maxVisibleCharacters = 99999;
+            t.text = text.Replace("\n\n", "\n");
+            t.ForceMeshUpdate();
+            var info = t.textInfo;
+            int n = info.lineCount;
+            if (n == 0) return;
+            var root = talk.root;
+            float Up(TMP_Text label, float y) => root.InverseTransformPoint(label.transform.TransformPoint(new Vector3(0f, y, 0f))).y;
+            // The top of a line's letters (capitals: none go below the baseline).
+            float Top(TMP_TextInfo ti, int line)
+            {
+                var li = ti.lineInfo[line];
+                float top = float.MinValue;
+                for (int i = li.firstCharacterIndex; i <= li.lastCharacterIndex && i < ti.characterCount; i++)
+                    if (ti.characterInfo[i].isVisible) top = Mathf.Max(top, ti.characterInfo[i].topRight.y);
+                return top > float.MinValue ? top : li.ascender;
+            }
+            float top0 = Top(info, 0), base0 = info.lineInfo[0].baseline;
+            float cap = top0 - base0;
+            float pitch0 = n > 1 ? base0 - info.lineInfo[1].baseline : 0f;
+            // PRESS C's top (its letters'), in the box.
+            float hintTop;
+            var hint = talk.hint;
+            hint.ForceMeshUpdate();
+            if (hint.textInfo.characterCount > 0 && hint.textInfo.lineCount > 0) hintTop = Up(hint, Top(hint.textInfo, 0));
+            else hintTop = Up(hint, hint.rectTransform.rect.yMax);
+            float boxTop = root.rect.yMax - 6f;   // (under the box's line: 2 px, 4 px in)
+            float gap = (boxTop - hintTop - n * cap) / (n + 1);
+            if (gap <= 0f) return;
+            if (n > 1) t.lineSpacing = (Mathf.Round(cap + gap) - pitch0) * 100f / t.fontSize;   // (whole pixels apart)
+            // Down (or up) so the first line's top is a gap under the box's line.
+            float shift = Up(t, top0) - (boxTop - gap);
+            t.margin = new Vector4(0f, Mathf.Round(shift), 0f, 0f);
+        }
+
         // The bobbing "more" arrow, and PRESS C beside it.
         static RectTransform Pointer(RectTransform parent, int x, int y)
             => Picture(parent, "More", Resources.Load<Sprite>("Dialogue/DialogPointer"), x, y, 14, 10);
@@ -567,7 +651,10 @@ namespace SpatialEmulator.Demo
                     bool portal = s.speaker == Speaker.Portal;
                     _large.text.alignment = portal ? TextAlignmentOptions.Top : _talkAlign.Value;
                     _large.text.margin = _talkMargin + (portal ? new Vector4(0f, PortalTopPad, 0f, 0f) : Vector4.zero);   // (a little lower)
+                    // The RESTART warning double spaced (a line's height between its lines).
+                    _large.text.lineSpacing = s.speaker == Speaker.Restart ? 100f : 0f;
                 }
+                if (_talk == _short) SpaceEvenly(_short, s.text);
                 _talk.text.maxVisibleCharacters = 0;
                 _talk.text.ForceMeshUpdate();   // (parsed now, for Typing)
             }

@@ -121,7 +121,7 @@ namespace SpatialEmulator.Mobile
         static int s_devSettingsVersion;
         int _appliedDevSettingsVersion;
 
-        const int MaxLayers = 9;   // (THE TIME CRYSTAL: its 8 depth groups and the player's own, over the HUD)
+        const int MaxLayers = 16;   // (THE TIME CRYSTAL: its 8 depth groups, the pilot portrait's and the player's own, over the HUD)
         const int MaxPixels = 512 * 256; // matches RD_MAX_WIDTH*RD_MAX_HEIGHT
         const int MaxCoreFramesPerUpdate = 3;
 

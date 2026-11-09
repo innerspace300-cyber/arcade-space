@@ -90,7 +90,7 @@ namespace SpatialEmulator.UI
 
         // ABOUT's window, emptied: `title` on its banner, its rows in a column that scrolls
         // (more than fit) where ABOUT's text was. Returns that column.
-        static Transform MakeWindow(SettingsScreen settings, string name, string titleText, out GameObject window)
+        public static Transform MakeWindow(SettingsScreen settings, string name, string titleText, out GameObject window)
         {
             var w = Instantiate(settings.aboutWindow, settings.aboutWindow.transform.parent);
             w.name = name;

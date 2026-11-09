@@ -61,13 +61,16 @@ namespace SpatialEmulator.Demo
         public const string HudLayer = "TcHUD";
         const string PlayerLayer = "TcPlayer";
         static readonly string[] GroupLayers =
-            { "TcSpace", "TcNebula", "TcPlanets", "TcStars", "TcRocks", "TcBigRocks", "TcActors", HudLayer, PlayerLayer };
+            { "TcSpace", "TcNebula", "TcPlanets", "TcStars", "TcRocks", "TcBigRocks", "TcActors", HudLayer, PortraitLayer, PlayerLayer };
+        // The pilot's portrait: at the HUD's depth, but on a camera with no bloom, so the HUD's strong glow
+        // (for the neon score) doesn't blow out the face. (TcStatus: full screen's old status layer, unused now.)
+        const string PortraitLayer = StatusLayer;
         static readonly string[] ActorExtraLayers = { "Default", "TransparentFX", "TcBullet" };
         // The enemy ships and their bullets go with the player's (over the HUD's portrait, health bar, lives and bombs).
         static readonly string[] PlayerExtraLayers = { "TcEnemy", "TcEnemyBullet" };
         /// Each depth group's depth, in steps of the layer spacing: close
         /// together at the back, the widest gap between the ships and the HUD.
-        static readonly float[] Depths = { 0f, 0.45f, 1f, 1.6f, 2.3f, 3.1f, 4.4f, 6f, 4.4f };
+        static readonly float[] Depths = { 0f, 0.45f, 1f, 1.6f, 2.3f, 3.1f, 4.4f, 6f, 6f, 4.4f };
 
         public static TimeCrystalGame Running { get; private set; }
         public static bool IsRunning => Running != null;
@@ -251,6 +254,10 @@ namespace SpatialEmulator.Demo
                 if (t.gameObject.layer == 0) t.gameObject.layer = actors;
                 else if (t.gameObject.layer == ui) t.gameObject.layer = hud;
             }
+            int portrait = LayerMask.NameToLayer(PortraitLayer);
+            foreach (var t in GetComponentsInChildren<Transform>(true))
+                if (t.name == "PLAYER PORTRAIT" && portrait >= 0)
+                    foreach (var part in t.GetComponentsInChildren<Transform>(true)) part.gameObject.layer = portrait;
         }
 
         void BuildCameras()
@@ -306,7 +313,7 @@ namespace SpatialEmulator.Demo
                 if (GroupLayers[i] == HudLayer)
                 {
                     PointHudAt(cam);
-                    AddBloom(cam, data, HudLayer, 0.7f, 2.9f, 0.25f);   // (tight round the text)
+                    AddBloom(cam, data, HudLayer, 0.6f, 4.5f, 0.4f);   // (the neon blue score text, glowing wider)
                 }
 
                 Layers.Add(new Layer { name = GroupLayers[i], zOrder = (uint)i, depth = Depths[i], texture = rt, fillFrame = true, premultiplied = true, onTop = GroupLayers[i] == PlayerLayer || GroupLayers[i] == "TcActors" });   // (the ships, gems, power-ups and blasts over the HUD's pieces; the player's over them)

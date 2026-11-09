@@ -22,6 +22,9 @@ using UnityEngine.UI;
 using Touch = UnityEngine.InputSystem.EnhancedTouch.Touch;
 using TouchPhase = UnityEngine.InputSystem.TouchPhase;
 
+using UnityEngine.XR.ARFoundation;
+using UnityEngine.XR.ARSubsystems;
+
 namespace SpatialEmulator
 {
     // After ArcadeTouchRouter (-200), which claims control fingers first.
@@ -121,7 +124,7 @@ namespace SpatialEmulator
         Vector2 _dragScreenPerMeter;
         Quaternion _ringStartRotation;
         float _ringLastAngle, _ringTurned;
-        float _turnFrom;   // CabinetOrientation's turn as the ring or twist began (moved along at the range's ends)
+        float _turnFrom;   // CabinetOrientation's turn as the ring or twist began
         bool _ringOnSurface;
 
         // Two-finger gesture in progress.
@@ -320,7 +323,34 @@ namespace SpatialEmulator
             {
                 SetSelected(false);
             }
+            else if (!_locked && cam) PlaceAgain(screenPosition);
         }
+
+        // While the grid's still up, a tap on another part of it drops the cabinet there instead.
+        void PlaceAgain(Vector2 screenPosition)
+        {
+            if (!_fader) _fader = FindAnyObjectByType<CabinetPlaneFader>();
+            if (!_fader || !_fader.planesVisible || !_orientation) return;
+            if (!_raycaster) _raycaster = FindAnyObjectByType<ARRaycastManager>();
+            if (!_raycaster)
+            {
+                var origin = FindAnyObjectByType<Unity.XR.CoreUtils.XROrigin>();
+                if (!origin) return;
+                _raycaster = origin.gameObject.AddComponent<ARRaycastManager>();
+            }
+            if (!_raycaster.Raycast(screenPosition, s_hits, TrackableType.PlaneWithinPolygon)) return;
+            var pose = s_hits[0].pose;
+            // (The side of the surface the player's on: a ceiling's normal may come pointing up.)
+            Vector3 normal = pose.up;
+            var cam = Camera.main;
+            if (cam && Vector3.Dot(normal, cam.transform.position - pose.position) < 0f) normal = -normal;
+            _orientation.PlaceAgain(pose.position, normal);
+            lastInteractionTime = Time.unscaledTime;
+        }
+
+        CabinetPlaneFader _fader;
+        ARRaycastManager _raycaster;
+        static readonly System.Collections.Generic.List<ARRaycastHit> s_hits = new System.Collections.Generic.List<ARRaycastHit>();
 
         void SetSelected(bool selected)
         {
@@ -390,8 +420,7 @@ namespace SpatialEmulator
         }
 
         // The finger's point on the ring's plane drags the ring around, so the
-        // cabinet turns as if grabbed. CabinetOrientation holds it to its range
-        // and eases it there.
+        // cabinet turns as if grabbed. CabinetOrientation eases it there.
         void Turn(Vector2 screenPosition)
         {
             if (_ringOnSurface)
@@ -411,8 +440,7 @@ namespace SpatialEmulator
         }
 
         // The cabinet turned `gesture` degrees (clockwise from above) since the
-        // ring or twist began. At the end of its range the start moves along,
-        // so turning back answers at once (no slack to take up first).
+        // ring or twist began.
         void TurnBy(float gesture, Quaternion startRotation)
         {
             if (!_orientation)
@@ -422,7 +450,6 @@ namespace SpatialEmulator
             }
             float want = _turnFrom + gesture;
             _orientation.SetTurn(want);
-            if (!Mathf.Approximately(_orientation.Turn, want)) _turnFrom = _orientation.Turn - gesture;
         }
 
         bool TryRingAngle(Vector2 screenPosition, out float angle)
@@ -486,6 +513,9 @@ namespace SpatialEmulator
                 Vector3 anchor = t.TransformPoint(center);
                 t.localScale = Vector3.one * Mathf.Clamp(_gestureScale * distance / _gestureDistance, minScale, maxScale);
                 t.position += anchor - t.TransformPoint(center);
+                // (Remembered: placed again, it drops in at this size.)
+                var crt = t.GetComponent<CrtCabinet>();
+                if (crt && crt.Shown) CrtCabinet.SizeRatio = t.localScale.x / Mathf.Max(crt.StartScale, 0.001f);
             }
 
             // (Added up a step at a time, so twisting round past half a turn

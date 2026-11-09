@@ -226,6 +226,7 @@ namespace SpatialEmulator.Mobile
                 var info = new RetroGameInfo { path = pathPtr, data = IntPtr.Zero, size = UIntPtr.Zero, meta = IntPtr.Zero };
                 FlatPixels = null;   // (no last game's picture)
                 FlatFrame = 0;
+                Controls.ArcadeInput.ResetForNewGame();   // (no last game's buttons or coin)
                 Debug.Log("[RD-DIAG] calling retro_load_game()");
                 bool ok = retro_load_game(ref info);
                 Debug.Log("[RD-DIAG] retro_load_game() returned " + ok);

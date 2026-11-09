@@ -273,16 +273,16 @@ namespace TimeCrystal
                     plain = new Material(digital.material) { name = "TC Digital" };
                     plain.SetFloat("_FaceDilate", 0.1f);
                     plain.EnableKeyword("GLOW_ON");
-                    plain.SetColor("_GlowColor", new Color(0.2f, 0.95f, 1f, 1f));
+                    plain.SetColor("_GlowColor", new Color(0.05f, 0.35f, 1f, 1f));   // (neon blue)
                     plain.SetFloat("_GlowOffset", 0.05f);
                     plain.SetFloat("_GlowInner", 0f);
-                    plain.SetFloat("_GlowOuter", 0.32f);
-                    plain.SetFloat("_GlowPower", 0.85f);
+                    plain.SetFloat("_GlowOuter", 0.45f);
+                    plain.SetFloat("_GlowPower", 1f);
                 }
                 foreach (var t in new[] { scoreLabel, score, hiLabel, hi })
                 {
                     if (digital) { t.font = digital; t.fontSharedMaterial = plain; }
-                    t.color = Color.white;   // (white, glowing aqua)
+                    t.color = new Color(0.3f, 0.65f, 1f);   // (neon blue, glowing blue)
                     t.alignment = TextAlignmentOptions.MidlineLeft;
                     t.textWrappingMode = TextWrappingModes.NoWrap;
                     t.overflowMode = TextOverflowModes.Overflow;

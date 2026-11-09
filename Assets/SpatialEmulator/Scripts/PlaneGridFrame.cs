@@ -19,6 +19,54 @@ namespace SpatialEmulator
 
         static readonly int FrameId = Shader.PropertyToID("_GridFrame"), FloorId = Shader.PropertyToID("_GridFloorY");
 
+        static readonly int GlowId = Shader.PropertyToID("_GridGlowColor"), LineId = Shader.PropertyToID("_GridLineColor");
+
+        // Settings' neons (AppSettings.GridColor): the bloom round the lines, and the lines themselves.
+        // NEON RGB, last, is a rainbow flowing across the room (PlaneGrid.shader, _GridRainbow); its colours here stand in for it
+        // where one colour's needed (Settings' name for it).
+        public static readonly string[] ColorNames = { "NEON BLUE", "NEON PINK", "NEON ORANGE", "NEON AQUA", "NEON RGB" };
+        public static readonly Color[] Glows = { new Color(0f, 0.5f, 1f), new Color(1f, 0.08f, 0.58f), new Color(1f, 0.38f, 0f), new Color(0f, 0.9f, 0.75f), new Color(0.75f, 0.3f, 1f) };
+        public static readonly Color[] Lines = { new Color(0.55f, 0.9f, 1f), new Color(1f, 0.7f, 0.9f), new Color(1f, 0.8f, 0.5f), new Color(0.6f, 1f, 0.95f), new Color(0.9f, 0.75f, 1f) };
+        // Each single neon's five shades and neighbouring hues, looped through in order (PlaneGrid.shader _GridShades).
+        static Color C(float r, float g, float b) => new Color(r, g, b);
+        public static readonly Color[][] Shades =
+        {
+            new[] { C(0.25f, 0.1f, 1f), C(0f, 0.35f, 1f), C(0f, 0.65f, 1f), C(0.2f, 0.95f, 1f), C(0f, 0.5f, 1f) },          // NEON BLUE: violet-blue, electric, neon, ice cyan, blue
+            new[] { C(0.6f, 0f, 1f), C(1f, 0f, 0.7f), C(1f, 0.08f, 0.45f), C(1f, 0.4f, 0.75f), C(1f, 0.15f, 0.9f) },       // NEON PINK: purple, magenta, hot pink, candy, fuchsia
+            new[] { C(1f, 0.08f, 0f), C(1f, 0.3f, 0f), C(1f, 0.5f, 0f), C(1f, 0.75f, 0.05f), C(1f, 0.4f, 0.15f) },         // NEON ORANGE: red, orange, tangerine, gold, coral
+            new[] { C(0f, 0.5f, 1f), C(0f, 0.8f, 0.95f), C(0f, 1f, 0.75f), C(0.3f, 1f, 0.5f), C(0f, 0.95f, 0.95f) },       // NEON AQUA: blue-teal, cyan, aqua, mint, turquoise
+            new[] { C(1f, 0f, 0f), C(1f, 1f, 0f), C(0f, 1f, 0f), C(0f, 0.5f, 1f), C(1f, 0f, 1f) },                          // (NEON RGB uses the rainbow instead)
+        };
+        public const int Rgb = 4;
+        public static bool IsRgb => AppSettings.GridColor == Rgb;
+
+        // (Was earned: ENDLESS KNIGHT's ending, the dark crystal, unlocked it for good. See RgbForEveryone.)
+        const string RgbUnlockKey = "SpatialEmulator.neonRgbUnlocked";
+        public const string RgbUnlockHint = "BEAT ENDLESS KNIGHT TO UNLOCK";
+        // NEON RGB is open to everyone (Wayne, 2026-11-09): no longer earned. The unlock is kept, unused, in case.
+        const bool RgbForEveryone = true;
+        public static bool RgbUnlocked => RgbForEveryone || PlayerPrefs.GetInt(RgbUnlockKey, 0) != 0;
+        public static bool Locked(int color) => color == Rgb && !RgbUnlocked;
+        public static void UnlockRgb()
+        {
+            if (RgbUnlocked) return;
+            PlayerPrefs.SetInt(RgbUnlockKey, 1);
+            PlayerPrefs.Save();
+        }
+        static readonly int RainbowId = Shader.PropertyToID("_GridRainbow");
+        static readonly int ShadesId = Shader.PropertyToID("_GridShades");
+        static readonly Vector4[] s_shades = new Vector4[5];
+
+        static void ApplyColor()
+        {
+            int i = AppSettings.GridColor;
+            Shader.SetGlobalColor(GlowId, Glows[i]);
+            Shader.SetGlobalColor(LineId, Lines[i]);
+            Shader.SetGlobalFloat(RainbowId, i == Rgb ? 1f : 0f);
+            for (int k = 0; k < s_shades.Length; k++) s_shades[k] = Shades[i][k];
+            Shader.SetGlobalVectorArray(ShadesId, s_shades);
+        }
+
         static Vector2 s_axis = Vector2.right;
 
         /// The nearest of the room grid's four directions to `direction` (flat on the floor): what a cabinet squares up to.
@@ -43,7 +91,14 @@ namespace SpatialEmulator
             go.AddComponent<PlaneGridFrame>();
         }
 
-        void Awake() => Send();
+        void Awake()
+        {
+            Send();
+            ApplyColor();
+            AppSettings.Changed += ApplyColor;
+        }
+
+        void OnDestroy() => AppSettings.Changed -= ApplyColor;
 
         void Update()
         {

@@ -78,6 +78,7 @@ namespace SpatialEmulator.UI
             panel._sourceContent = save.transform.Find("Content").gameObject;
             panel._content = content.gameObject;
             panel._canvas = copy.GetComponent<Canvas>();
+            if (panel._canvas) { panel._canvas.overrideSorting = true; panel._canvas.sortingOrder = SaveStatePanel.SideOrder; }   // (over the game layers, as the save panel)
             panel._menuKey = menuKey;
             panel.LateUpdate();
             return content;
@@ -89,7 +90,11 @@ namespace SpatialEmulator.UI
         const float Header = 14f, BarsTop = 1.5f;
         // On the 3D cabinet: the bars' room over MENU (a wider gap under them than by the frame).
         internal const float CabinetHeader = 20f;
+        /// LOCK's row under the bars on the 3D cabinet, in canvas units (0 elsewhere): both panels hang that far lower.
+        internal static float CabinetKeysRow;
         const float LockScale = 0.7f;
+        const float FrameNudge = 1.5f;   // canvas units: beside the frame, MENU (bars, keys and all) a little further left
+        const float CabinetKeyScale = 0.55f;   // LOCK and the move key by the 3D cabinet's bars (45% smaller than the menu's keys)
 
         // The 3D cabinet (the panels at its corner), not the picture frame.
         bool OnCabinet => _source && (_source.Corner != null || !_source.frame);
@@ -158,7 +163,7 @@ namespace SpatialEmulator.UI
         void ShowMenuLock()
         {
             bool locked = Locked;
-            bool row = locked && !OnCabinet;   // (on the cabinet LOCK itself is in the menu)
+            bool row = false;   // (LOCK itself toggles now, by the frame as on the cabinet: no UNLOCK row)
             if (_menuLockLine && _menuLockLine.activeSelf != row) _menuLockLine.SetActive(row);
             string text = locked ? "UNLOCK" : "LOCK";
             if (_menuLockLabel && _menuLockLabel.text != text) _menuLockLabel.text = text;
@@ -275,8 +280,10 @@ namespace SpatialEmulator.UI
                 // they're dimmed and can't be tapped - it's unlocked from the menu.
                 // On the 3D cabinet they're part of the menu (shown only while it's open); by the
                 // frame they stay out, dimmed once it's locked (the menu's UNLOCK row unlocks).
-                if (_moveKey && child == _moveKey) { if (OnCabinet) SaveStatePanel.Fade(child.gameObject, open); else Usable(child.gameObject, !Locked); continue; }
-                if (child.GetComponent<StackBelow>()) { lockKey = (RectTransform)child; if (OnCabinet) SaveStatePanel.Fade(child.gameObject, open); else Usable(child.gameObject, !Locked); continue; }
+                // On the 3D cabinet they're out of the menu too, always there (LOCK toggles: tap to lock, again to unlock).
+                // (By the frame too, as on the cabinet: shown, LOCK always tappable - locked it reads UNLOCK.)
+                if (_moveKey && child == _moveKey) { SaveStatePanel.Fade(child.gameObject, true); Usable(child.gameObject, !Locked); continue; }
+                if (child.GetComponent<StackBelow>()) { lockKey = (RectTransform)child; SaveStatePanel.Fade(child.gameObject, true); Usable(child.gameObject, true); continue; }
                 SaveStatePanel.Fade(child.gameObject, open);
             }
             // How tall MENU is (the panels are scaled to the frame's height by it).
@@ -285,9 +292,8 @@ namespace SpatialEmulator.UI
                 float menu = ((RectTransform)_content.transform).rect.height;
                 // (Only once it's laid out - its title and keys, well over 60 -
                 // or the panels would be scaled up to fit a sliver.)
-                // (The three bars over it count: together they're the frame's height.)
-                float group = menu + Header;
-                if (menu > 60f && Mathf.Abs(group - SaveStatePanel.MenuGroupHeight) > 0.5f) SaveStatePanel.MenuGroupHeight = group;
+                // (By the frame it's LOCK's row's top down to MENU's bottom, measured in FitToFrame.)
+                _menuLaidOut = menu > 60f;
             }
 
             // Its mirror across the screen's middle.
@@ -303,17 +309,27 @@ namespace SpatialEmulator.UI
             // cabinet's top), right end level with MENU's right edge (clear of the
             // cabinet beside it), and MENU (with LOCK and the move key) a gap below them.
             Vector2 key = new Vector2(half - 7f, top + CabinetHeader - BarsTop - 4.5f);
+            // The 3D cabinet: LOCK and the move key in a row under the bars, open or
+            // folded alike - MENU opens below them (the panel down that far, the bars
+            // and the keys kept where they are).
+            float keysRow = 0f;
+            if (_menuKey && lockKey) keysRow = LockGap + lockKey.rect.height * CabinetKeyScale;   // (cabinet and frame alike)
+            if (Mathf.Abs(CabinetKeysRow - keysRow) > 0.01f) CabinetKeysRow = keysRow;   // (the panel this mirrors drops by it too: their tops level)
+            if (keysRow > 0f && s > 0f)
+            {
+                if (_source.Corner == null) transform.localPosition -= transform.localRotation * Vector3.up * (keysRow * s);   // (with a corner it's down already: mirrored)
+                key.y += keysRow;
+            }
             // (MENU's a gap below them: the panel it mirrors is down that far already - SaveStatePanel - so their tops line up.)
-            // Beside the frame: the bars just off its top left corner (their
-            // top bar a pixel and a half under the frame's top), and MENU
-            // under them, its right edge in line with theirs.
+            // Beside the frame: just off its left edge, laid out as on the 3D cabinet - LOCK's
+            // row's top level with the frame's (FitToFrame), the bars above it, MENU down to the frame's bottom.
             if (_source.frame && _source.Corner == null && s > 0f)
             {
                 float frameLeft = middle - _source.frame.OuterHalfWidth;
-                float keyMiddle = frameLeft - (KeyGap + KeySize * 0.5f) * s;
-                float panelMiddle = frameLeft - (KeyGap + half) * s;
-                transform.localPosition = new Vector3(panelMiddle, place.y - Header * s, place.z);
-                key = new Vector2((keyMiddle - panelMiddle) / s, top + Header - BarsTop - 4.5f);
+                float panelMiddle = frameLeft - (KeyGap + FrameNudge + half) * s;
+                // (Its height set in FitToFrame; the bars and keys above it spaced as on the 3D cabinet.)
+                transform.localPosition = new Vector3(panelMiddle, place.y, place.z);
+                key = new Vector2(half - 7f, top + CabinetHeader + keysRow - BarsTop - 4.5f);
             }
             if (_menuKey)
             {
@@ -327,8 +343,10 @@ namespace SpatialEmulator.UI
             // edge level with the frame's (otherwise under the panel, as it was).
             if (lockKey && lockKey.GetComponent<StackBelow>() is { } below)
             {
-                bool besideFrame = _source.frame && _source.Corner == null && s > 0f;
-                below.enabled = !besideFrame;
+                bool besideFrame = !_menuKey && _source.frame && _source.Corner == null && s > 0f;
+                // (The 3D cabinet, folded: right under the three bars - placed here, not stacked under MENU.)
+                bool underBars = !besideFrame && _menuKey;
+                below.enabled = !besideFrame && !underBars;
                 if (!_moveKey) MakeMoveKey(lockKey);
                 if (!_menuLockCap) MakeMenuLock(lockKey);
                 ShowMenuLock();
@@ -352,6 +370,25 @@ namespace SpatialEmulator.UI
                         _moveKey.anchoredPosition = lockKey.anchoredPosition + new Vector2(lockWidth * 0.5f + MoveGap + _moveKey.rect.width * LockScale * 0.5f, 0f);
                     }
                 }
+                else if (underBars)
+                {
+                    // The 3D cabinet: right under the three bars, small, in a row - the move
+                    // key on the bars' side (the panel's right edge), LOCK left of it.
+                    float k = CabinetKeyScale;
+                    lockKey.localScale = Vector3.one * k;
+                    // (The bars' place this frame - from the panel's middle - from its pivot.)
+                    float barsBottom = key.y + (0.5f - rect.pivot.y) * rect.rect.height - KeySize * 0.5f;
+                    float right = half;
+                    if (_moveKey)
+                    {
+                        if (!_moveKey.gameObject.activeSelf) _moveKey.gameObject.SetActive(true);
+                        _moveKey.localScale = Vector3.one * k;
+                        float w = _moveKey.rect.width * k;
+                        PlaceTop(_moveKey, right - w * 0.5f, barsBottom - LockGap, k);
+                        right -= w + MoveGap;
+                    }
+                    PlaceTop(lockKey, right - lockKey.rect.width * k * 0.5f, barsBottom - LockGap, k);
+                }
                 else
                 {
                     // The 3D cabinet: LOCK under MENU (StackBelow sets its height), its
@@ -368,6 +405,36 @@ namespace SpatialEmulator.UI
             }
             transform.localRotation = from.localRotation;
             transform.localScale = from.localScale;
+            if (_source.frame && _source.Corner == null && s > 0f && lockKey && _menuKey) FitToFrame(lockKey, s);
+        }
+
+        bool _menuLaidOut;
+        static readonly Vector3[] s_corners = new Vector3[4];
+
+        // Beside the frame: LOCK's row's top level with the frame's top (the bars above it, over the
+        // frame), and the panels scaled (SaveStatePanel, by MenuGroupHeight) so MENU's bottom is the frame's.
+        void FitToFrame(RectTransform lockKey, float s)
+        {
+            var parent = transform.parent;
+            if (!parent) return;
+            float frameTop = (_stack ? _stack.localPosition.y : 0f) + _source.frame.OuterHalfHeight;
+            lockKey.GetWorldCorners(s_corners);
+            float keysTop = parent.InverseTransformPoint(s_corners[1]).y;
+            transform.localPosition += Vector3.up * (frameTop - keysTop);
+            if (!_menuLaidOut || !_content.activeInHierarchy) return;
+            ((RectTransform)_content.transform).GetWorldCorners(s_corners);
+            float bottom = parent.InverseTransformPoint(s_corners[0]).y + (frameTop - keysTop);
+            float group = (frameTop - bottom) / s;   // (in the panel's own units)
+            if (group > 1f && Mathf.Abs(group - SaveStatePanel.MenuGroupHeight) > 0.5f) SaveStatePanel.MenuGroupHeight = group;
+        }
+
+        // A key's middle across at x and its top at y (the panel's own units, from its pivot).
+        static void PlaceTop(RectTransform key, float x, float top, float scale = 1f)
+        {
+            float y = top - key.rect.height * scale * (1f - key.pivot.y);
+            x += key.rect.width * scale * (key.pivot.x - 0.5f);
+            var at = new Vector3(x, y, key.localPosition.z);
+            if (key.localPosition != at) key.localPosition = at;
         }
     }
 }

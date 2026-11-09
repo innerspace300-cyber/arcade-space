@@ -6,6 +6,11 @@
 // so a tap there places it: CabinetManipulator sets that.) Lives on the
 // template's Object Spawner (added by Tools > Spatial Emulator > Build Arcade
 // Controls).
+//
+// Away from the app even for a second, AR tracking starts over and the room's
+// no longer where it was, so a cabinet would come back somewhere else: on
+// return it goes, scanning restarts and the player places a new one (the
+// game starts again). Full screen has no cabinet in the room, so it stays.
 
 using SpatialEmulator.Controls;
 using SpatialEmulator.UI;
@@ -22,6 +27,20 @@ namespace SpatialEmulator
         public ArcadeTouchRouter router;
 
         GameObject _cabinet;
+
+#if UNITY_IOS && !UNITY_EDITOR
+        [System.Runtime.InteropServices.DllImport("__Internal")]
+        static extern int SE_TakeBackgrounded();   // (SEDevice.mm)
+
+        // Real leaving only: a sheet or Control Center over the app doesn't count.
+        static bool LeftApp => SE_TakeBackgrounded() != 0;
+#elif UNITY_ANDROID && !UNITY_EDITOR
+        static bool s_left;
+        void OnApplicationPause(bool paused) => s_left |= paused;
+        static bool LeftApp { get { bool left = s_left; s_left = false; return left; } }
+#else
+        static bool LeftApp => false;
+#endif
 
         /// The placed cabinet, or null.
         public GameObject cabinet => _cabinet ? _cabinet : null;
@@ -51,12 +70,21 @@ namespace SpatialEmulator
                 return;
             }
             _cabinet = spawned;
+            spawned.AddComponent<CabinetDrop>();
             Apply();
         }
 
         // Deletion happens elsewhere (CabinetManipulator's Delete button), so
         // poll for it; a destroyed cabinet compares equal to null.
-        void Update() => Apply();
+        void Update()
+        {
+            if (LeftApp && !FullScreenTest.Enabled)
+            {
+                if (_cabinet) Destroy(_cabinet);
+                CabinetHints.RestartScanning();
+            }
+            Apply();
+        }
 
         void Apply()
         {

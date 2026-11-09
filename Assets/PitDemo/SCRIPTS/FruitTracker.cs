@@ -26,6 +26,8 @@ public class FruitTracker : MonoBehaviour
     const string CompleteKey = "EndlessKnight.FruitComplete";   // (level 1's; later levels' + their number)
     /// The running level's row.
     public static FruitTracker Instance { get; private set; }
+    /// The fruit as built, whatever this level's own set (the dark crystal's feast: CrystalPrize).
+    public Sprite[] AllFruit { get; private set; }
 
     public static event System.Action<Sprite> Collected;
     /// ARcade: this run has picked up every fruit (true: the first time ever,
@@ -52,6 +54,7 @@ public class FruitTracker : MonoBehaviour
     void Awake()
     {
         Instance = this;
+        AllFruit = fruit;
         // Past level 1: that level's own set (LevelCollection) in the row's first slots, the rest hidden.
         int level = SpatialEmulator.Demo.PitDemoGame.Level;
         var set = LevelCollection.For(level);

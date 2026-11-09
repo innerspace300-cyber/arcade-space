@@ -1,9 +1,8 @@
 // CabinetPlaneFader.cs — hides the detected-plane visuals once the cabinet
 // is placed, so the game sits in the room instead of on a dotted overlay,
 // and brings them back while the cabinet is being positioned. Planes show
-// while there's no cabinet (to place one) and for CabinetManipulator's
-// idleTimeout after the last touch that placed, selected or moved it (the
-// gizmo fades on the same clock); planes detected while hidden stay hidden.
+// while there's no cabinet (to place one) and for PlanesStay after the last
+// touch that placed, selected or moved it; planes detected while hidden stay hidden.
 // Only the visual alpha fades, through the template's
 // ARPlaneMeshVisualizerFader, so real walls and floors still occlude the
 // cabinet.
@@ -40,9 +39,11 @@ namespace SpatialEmulator
         readonly Dictionary<ARPlaneMeshVisualizerFader, bool> _shown = new Dictionary<ARPlaneMeshVisualizerFader, bool>();
         readonly List<ARPlaneMeshVisualizerFader> _dead = new List<ARPlaneMeshVisualizerFader>();
 
+        const float PlanesStay = 10f;   // seconds after the last touch (a tap on them drops the cabinet there meanwhile)
+
         public bool planesVisible =>
             !(gate && gate.cabinet) ||
-            (manipulator && Time.unscaledTime - manipulator.lastInteractionTime < manipulator.idleTimeout);
+            (manipulator && Time.unscaledTime - manipulator.lastInteractionTime < PlanesStay);
 
         // Late, so it overrides the template's handler for new planes, which
         // always fades them in.

@@ -1410,6 +1410,14 @@ public class PlayerScriptARIANAClips : MonoBehaviour
     private Bounds attackArea, slashArea;
     private bool hasAttackArea, hasSlashArea;
 
+    /// ARcade: Sword Buff's cast for show (the ending: LevelPortal) - no mana, no buff.
+    public void CastSwordForShow()
+    {
+        if (isDead || !swordBuffClip) return;
+        BeginCast(PlayerClipState.SwordBuff, swordBuffClip.length);
+        PitAudio.PlayClip(swordBuffSound);
+    }
+
     /// ARcade: Sword Buff - double damage for buffSeconds, a gold sword.
     public void TriggerSwordBuff()
     {

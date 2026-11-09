@@ -19,6 +19,7 @@ namespace SpatialEmulator
         const string ResumeKey = "SpatialEmulator.resumeLatestSave";
         const string LayerSpacingKey = "SpatialEmulator.layerSpacingScale";
         const string PickerInARKey = "SpatialEmulator.pickerInAR";
+        const string GridColorKey = "SpatialEmulator.gridColor";
 
         /// Layer spacing slider range: 0 (all layers flat on one plane) to
         /// three times the cabinet's default spacing; 1 = default.
@@ -45,6 +46,17 @@ namespace SpatialEmulator
         {
             get => PlayerPrefs.GetInt(PickerInARKey, 0) != 0;
             set { PlayerPrefs.SetInt(PickerInARKey, value ? 1 : 0); PlayerPrefs.Save(); Changed?.Invoke(); }
+        }
+
+        /// The AR scanning grid's neon (PlaneGridFrame.ColorNames).
+        public static int GridColor
+        {
+            get
+            {
+                int color = Mathf.Clamp(PlayerPrefs.GetInt(GridColorKey, 0), 0, PlaneGridFrame.ColorNames.Length - 1);
+                return PlaneGridFrame.Locked(color) ? 0 : color;
+            }
+            set { PlayerPrefs.SetInt(GridColorKey, value); PlayerPrefs.Save(); Changed?.Invoke(); }
         }
 
         /// Load a game's newest save state as soon as the game starts.

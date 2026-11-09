@@ -51,7 +51,7 @@ namespace SpatialEmulator
             _shown = locked;
             if (background && unlockedSprite && lockedSprite) background.sprite = locked ? lockedSprite : unlockedSprite;
             else if (background) background.color = locked ? lockedColor : unlockedColor;
-            if (label) label.text = locked ? "LOCKED" : "LOCK";
+            if (label) label.text = locked ? "UNLOCK" : "LOCK";   // (locked: what a tap does next)
         }
     }
 }

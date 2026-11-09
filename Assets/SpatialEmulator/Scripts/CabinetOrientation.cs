@@ -3,14 +3,12 @@
 //
 // On a floor or table it faces the AR camera once, at the moment it's
 // placed, squared up with the room's grid (PlaneGridFrame). After that it's turned only through Turn/SetTurn (CabinetManipulator's
-// twist gesture and ring), within a small range around that facing - enough
-// to see the layers stand apart, never so far the depth gives itself away -
-// and it eases to each new angle, so a fast drag can't make it jump about.
+// twist gesture and ring), all the way round if wanted, and it eases to each
+// new angle no faster than TurnSpeed, so a fast drag can't make it jump about.
 //
 // On a wall it hangs like a TV: flush against the wall with the screen
-// facing straight out and the screen centred on the tapped point. It turns
-// within the same range as on a floor (turning shows off the layer
-// separation), and scaling grows it from the screen's centre.
+// facing straight out and the screen centred on the tapped point, and scaling
+// grows it from the screen's centre.
 //
 // On a ceiling it hangs down like a suspended TV: its top just under the
 // tapped point, facing the camera and turnable like on a floor, and scaling
@@ -37,10 +35,8 @@ namespace SpatialEmulator
     [DefaultExecutionOrder(1000)]
     public class CabinetOrientation : MonoBehaviour
     {
-        [Tooltip("Degrees of yaw the cabinet may be rotated away from its initial camera-facing orientation.")]
-        public float maxRotationDegrees = 25f;
         [Tooltip("Seconds it takes to ease round to where it's been turned.")]
-        public float turnSmoothing = 0.12f;
+        public float turnSmoothing = 0.2f;
         [Tooltip("Seconds after spawn to keep tracking the camera before locking the base facing — covers the placement frames so the lock isn't taken before the cabinet has settled.")]
         public float settleSeconds = 0.4f;
         [Tooltip("A surface whose normal is within this many degrees of horizontal counts as a wall.")]
@@ -63,15 +59,21 @@ namespace SpatialEmulator
         public bool Fitted => _placed && _fitted;
 
         /// How far it's been turned from its first facing, in degrees
-        /// (positive clockwise seen from above): where it's heading, within
-        /// +-maxRotationDegrees.
+        /// (positive clockwise seen from above): where it's heading.
         public float Turn => _turnTarget;
 
-        /// Turns it to `degrees` from its first facing - held to the range;
-        /// it eases there.
-        public void SetTurn(float degrees) => _turnTarget = Mathf.Clamp(degrees, -maxRotationDegrees, maxRotationDegrees);
+        /// Turns it to `degrees` from its first facing, all the way round if
+        /// wanted; it eases there, no faster than TurnSpeed.
+        public void SetTurn(float degrees) => _turnTarget = degrees;
 
         float _turn, _turnTarget, _turnSpeed;
+        const float TurnSpeed = 120f;   // degrees a second at most, however fast the finger goes
+
+        /// Where it was tapped onto its surface.
+        public Vector3 Contact { get; private set; }
+
+        /// Straight out of the wall it hangs on.
+        public Vector3 WallOutward { get; private set; }
 
         /// Hung from a ceiling.
         public bool ceilingMounted { get; private set; }
@@ -88,6 +90,12 @@ namespace SpatialEmulator
         bool _fitted;
         int _fitFrames;
         const float HiddenScale = 0.0001f;   // until it's fitted
+
+        // The picture frame (no 3D cabinet) on a wall stands this much further off it than wallGap, in
+        // metres, so the wall's neon grid (and ARKit's guess at the wall) can't come through it.
+        const float FrameWallGap = 0.05f;
+        float _frameOff;   // how much of it's applied (0 on the 3D cabinet)
+        CrtCabinet _crt;
 
         Vector3 ScreenCenterLocal
         {
@@ -121,9 +129,25 @@ namespace SpatialEmulator
             _initialized = false;
             _fitted = false;
             _fitFrames = 0;
+            _frameOff = 0f;
             transform.localScale = Vector3.one * HiddenScale;
             wallMounted = false;
             ceilingMounted = false;
+        }
+
+        /// Sends it to `position` on the surface facing `normal` and drops it in afresh, the game running on:
+        /// gone at once (back too small to see, as when it spawned), then placed and fitted as a new one is.
+        public void PlaceAgain(Vector3 position, Vector3 normal)
+        {
+            var cabinet = GetComponent<CrtCabinet>();
+            if (cabinet) cabinet.enabled = false;   // (the 3D cabinet put away, back to its picture frame)
+            var drop = GetComponent<CabinetDrop>();
+            if (drop) { drop.enabled = false; Destroy(drop); }
+            transform.SetPositionAndRotation(position, Quaternion.FromToRotation(Vector3.up, normal));
+            enabled = false;
+            enabled = true;
+            if (cabinet) cabinet.enabled = true;
+            gameObject.AddComponent<CabinetDrop>();
         }
 
         void FaceCamera()
@@ -147,6 +171,7 @@ namespace SpatialEmulator
         void Place()
         {
             _placed = true;
+            Contact = transform.position;
             Vector3 normal = transform.up;
             float elevation = Mathf.Asin(Mathf.Clamp(normal.y, -1f, 1f)) * Mathf.Rad2Deg;
             Vector3 outward = new Vector3(normal.x, 0f, normal.z);
@@ -167,6 +192,7 @@ namespace SpatialEmulator
             wallMounted = true;
             _settling = false;
             outward.Normalize();
+            WallOutward = outward;
             // Forward into the wall, so the front faces out of it.
             transform.rotation = Quaternion.LookRotation(-outward, Vector3.up);
             _baseYaw = transform.eulerAngles.y;
@@ -233,6 +259,17 @@ namespace SpatialEmulator
             return any;
         }
 
+        // On a wall, the picture frame stands FrameWallGap further out; the 3D cabinet back at wallGap
+        // (switched either way - FRAME / CAB - it moves out or back in).
+        void OffWallForFrame()
+        {
+            if (!_crt) _crt = GetComponent<CrtCabinet>();
+            float want = wallMounted && _fitted && !(_crt && _crt.Shown) ? FrameWallGap : 0f;
+            if (Mathf.Approximately(want, _frameOff)) return;
+            transform.position += WallOutward * (want - _frameOff);
+            _frameOff = want;
+        }
+
         void LateUpdate()
         {
             if (!_placed) Place();
@@ -249,6 +286,7 @@ namespace SpatialEmulator
                     if (!FitToView()) transform.localScale = Vector3.one;
                 }
             }
+            OffWallForFrame();
             if (_settling)
             {
                 FaceCamera();
@@ -257,7 +295,7 @@ namespace SpatialEmulator
             }
             if (!_initialized) return;
             // Upright (no pitch or roll), eased round toward its turn.
-            _turn = Mathf.SmoothDamp(_turn, _turnTarget, ref _turnSpeed, turnSmoothing, Mathf.Infinity, Time.unscaledDeltaTime);
+            _turn = Mathf.SmoothDamp(_turn, _turnTarget, ref _turnSpeed, turnSmoothing, TurnSpeed, Time.unscaledDeltaTime);
             transform.rotation = Quaternion.Euler(0f, _baseYaw + _turn, 0f);
         }
     }
